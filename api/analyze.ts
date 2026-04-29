@@ -1,81 +1,61 @@
 import express from 'express';
-import cors from 'cors';
-
 const app = express();
-app.use(cors());
 app.use(express.json());
 
 app.post('/api/analyze', async (req, res) => {
   try {
+    // Если это демо - возвращаем JSON
+    if (req.body.customGeminiKey === 'demo') {
+      return res.json({ status: 'success', data: { channelData: { title: "Демо" }, aiAnalysis: { mistakes: [], tips: [], seoPack: {recommendedTags: []}, contentPlan: [], scripts: [], competitors: [], collaborations: [], monetization: [] } } });
+    }
+
     const { channelUrl, niche, customGeminiKey } = req.body;
     
-    // В это поле на сайте нужно будет вставить ключ от GROQ (начинается с gsk_)
-    const groqKey = (customGeminiKey || '').trim();
+    // ВАЖНО: Выведи в логи Vercel, что пришло
+    console.log("Запрос к API:", { niche, url: channelUrl });
 
-    if (groqKey === 'demo') {
-      return res.json({
-        status: 'success',
-        data: {
-          channelData: { title: "Демо Канал", subscribers: 100, totalViews: 1000, videoCount: 5 },
-          userVideos: [], outlierVideos: [],
-          aiAnalysis: { mistakes: ["Демо"], tips: ["Демо"], seoPack: {recommendedTags: [], titleTemplates: []}, contentPlan: [], scripts: [], competitors: [], collaborations: [], monetization: [] }
-        }
-      });
+    // Простая проверка ключа
+    if (!customGeminiKey || !customGeminiKey.startsWith('gsk_')) {
+      return res.status(400).json({ error: "Ключ должен начинаться с gsk_" });
     }
 
-    if (!groqKey.startsWith('gsk_')) {
-      return res.status(400).json({ error: 'Пожалуйста, вставьте API ключ от Groq (начинается на gsk_)' });
-    }
-
-    const ytKey = (process.env.YOUTUBE_API_KEY || '').trim();
-    if (!ytKey) return res.status(500).json({ error: 'YouTube ключ не найден в Vercel.' });
-
-    // YouTube API
-    const queryValue = channelUrl.replace(/^https?:\/\/(www\.)?youtube\.com\/(@)?/, '');
-    const searchUrl = `https://www.googleapis.com/youtube/v3/search?part=snippet&q=${encodeURIComponent(queryValue)}&type=channel&maxResults=1&key=${ytKey}`;
+    // 1. YouTube
+    const ytKey = process.env.YOUTUBE_API_KEY;
+    if (!ytKey) throw new Error("YOUTUBE_API_KEY не найден в переменных Vercel");
     
+    const query = channelUrl.split('/').pop().replace('@', '');
+    const searchUrl = `https://www.googleapis.com/youtube/v3/search?part=snippet&q=${encodeURIComponent(query)}&type=channel&maxResults=1&key=${ytKey}`;
     const sRes = await fetch(searchUrl);
     const sData: any = await sRes.json();
-    if (!sData.items?.length) return res.status(404).json({ error: 'Канал не найден. Проверьте ссылку.' });
+    
+    if (!sData.items?.length) throw new Error("Канал не найден");
     const channelTitle = sData.items[0].snippet.title;
 
-    // ЗАПРОС К GROQ (Самый быстрый бесплатный ИИ)
+    // 2. Groq
     const aiResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${groqKey}`
-      },
+      headers: { 'Authorization': `Bearer ${customGeminiKey}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        llama-3.3-70b-versatile", // Очень быстрая и умная модель
-        messages: [{ 
-            role: "user", 
-            content: `Return ONLY JSON. Analyze YouTube channel "${channelTitle}" (niche: ${niche}). Give 3 mistakes and 3 tips. Format: {"mistakes": ["1","2","3"], "tips": ["1","2","3"], "seoPack": {"recommendedTags": [], "titleTemplates": []}, "contentPlan": [], "scripts": [], "competitors": [], "collaborations": [], "monetization": []}` 
-        }],
-        temperature: 0.5
+        model: "llama-3.3-70b-versatile",
+        messages: [{ role: "user", content: `Analyze "${channelTitle}". Give JSON: {"mistakes":[], "tips":[], "seoPack":{"recommendedTags":[]}, "contentPlan":[], "scripts":[], "competitors":[], "collaborations":[], "monetization":[]}` }]
       })
     });
 
-    if (!aiResponse.ok) {
-        const errData: any = await aiResponse.json();
-        return res.status(400).json({ error: `Groq Ошибка: ${errData.error?.message || 'Сервер перегружен'}` });
-    }
-
     const aiData: any = await aiResponse.json();
-    const resultText = aiData.choices[0].message.content;
-    const cleanJson = resultText.replace(/```json|```/g, '').trim();
+    if (aiData.error) throw new Error("Groq API Error: " + aiData.error.message);
 
     res.json({
       status: 'success',
       data: {
-        channelData: { title: channelTitle, subscribers: 0, totalViews: 0, videoCount: 0 },
-        userVideos: [], outlierVideos: [],
-        aiAnalysis: JSON.parse(cleanJson)
+        channelData: { title: channelTitle },
+        aiAnalysis: JSON.parse(aiData.choices[0].message.content.replace(/```json|```/g, ''))
       }
     });
 
-  } catch (error: any) {
-    res.status(500).json({ error: 'Внутренняя ошибка: ' + error.message });
+  } catch (err: any) {
+    console.error("SERVER ERROR:", err);
+    // ВОТ ТУТ КЛЮЧЕВОЕ: Мы отправляем текст ошибки, чтобы ты увидел причину, а не 'A server error'
+    res.status(500).json({ error: err.toString() });
   }
 });
 
