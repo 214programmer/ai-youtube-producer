@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import { GoogleGenerativeAI } from '@google/generative-ai';
@@ -10,14 +11,7 @@ app.post('/api/analyze', async (req, res) => {
   try {
     const { channelUrl, niche, customGeminiKey } = req.body;
     
-    // ПРИНУДИТЕЛЬНО используем только ключ из поля ввода
-    if (!customGeminiKey) {
-      throw new Error('Пожалуйста, вставьте ваш API ключ Gemini в поле ввода.');
-    }
-
-    console.log("Попытка анализа для ниши:", niche);
-
-    // 1. YouTube часть (используем ключ из настроек Vercel)
+    // 1. YouTube часть
     const ytKey = process.env.YOUTUBE_API_KEY;
     if (!ytKey) throw new Error('YOUTUBE_API_KEY не найден в настройках Vercel.');
 
@@ -26,36 +20,48 @@ app.post('/api/analyze', async (req, res) => {
     
     const sRes = await fetch(searchUrl);
     const sData: any = await sRes.json();
-    if (!sData.items?.length) throw new Error('YouTube канал не найден.');
-    const channelTitle = sData.items[0].snippet.title;
+    const channelTitle = sData.items?.[0]?.snippet?.title || "YouTube Channel";
 
-    // 2. Gemini часть (СТРОГО через твой ключ)
-    const genAI = new GoogleGenerativeAI(customGeminiKey);
-    
-    // Пробуем самую стандартную модель без лишних настроек версии
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    // 2. AI часть с перебором моделей
+    const geminiKey = customGeminiKey || process.env.VITE_GEMINI_API_KEY;
+    if (!geminiKey) throw new Error('API ключ Gemini не найден.');
 
-    const prompt = `Ты YouTube-эксперт. Канал: "${channelTitle}", ниша: "${niche}". 
-    Дай 3 ошибки и 3 совета. Верни ответ СТРОГО в формате JSON: 
-    {"mistakes": ["1", "2", "3"], "tips": ["1", "2", "3"], "seoPack": {"recommendedTags": [], "titleTemplates": []}, "contentPlan": [], "scripts": [], "competitors": [], "collaborations": [], "monetization": []}`;
+    const genAI = new GoogleGenerativeAI(geminiKey);
+    const prompt = `Ты YouTube-продюсер. Проанализируй канал "${channelTitle}" в нише "${niche}". 
+    Ответь СТРОГО в формате JSON: 
+    {"mistakes": ["1", "2"], "tips": ["1", "2"], "seoPack": {"recommendedTags": [], "titleTemplates": []}, "contentPlan": [], "scripts": [], "competitors": [], "collaborations": [], "monetization": []}`;
 
-    console.log("Отправка запроса в Gemini...");
-    const result = await model.generateContent(prompt);
-    const response = await result.response;
-    const text = response.text().replace(/```json|```/g, '').trim();
+    // Список моделей от лучшей к самой стабильной
+    const modelsToTry = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-pro"];
+    let lastError = "";
 
-    console.log("Успешный ответ от Gemini!");
-
-    res.json({
-      status: 'success',
-      data: {
-        channelData: { title: channelTitle },
-        aiAnalysis: JSON.parse(text)
+    for (const modelName of modelsToTry) {
+      try {
+        console.log(`Пробую модель: ${modelName}`);
+        const model = genAI.getGenerativeModel({ model: modelName });
+        const result = await model.generateContent(prompt);
+        const text = result.response.text().replace(/```json|```/g, '').trim();
+        
+        // Если дошли сюда - значит успех! Отправляем ответ.
+        return res.json({
+          status: 'success',
+          data: {
+            channelData: { title: channelTitle },
+            aiAnalysis: JSON.parse(text)
+          }
+        });
+      } catch (err: any) {
+        lastError = err.message;
+        console.warn(`Модель ${modelName} не сработала:`, lastError);
+        continue; // Пробуем следующую модель
       }
-    });
+    }
+
+    // Если ни одна модель не сработала
+    throw new Error(`Ни одна модель ИИ не ответила. Последняя ошибка: ${lastError}`);
 
   } catch (error: any) {
-    console.error('ОШИБКА СЕРВЕРА:', error.message);
+    console.error('SERVER ERROR:', error.message);
     res.status(500).json({ error: error.message });
   }
 });
