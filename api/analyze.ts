@@ -56,10 +56,17 @@ app.post('/api/analyze', async (req, res) => {
     
     const parsedData = JSON.parse(jsonMatch[0]);
 
-    res.json({
+  res.json({
       status: 'success',
       data: {
-        channelData: { title: channelTitle },
+        channelData: { 
+            title: channelTitle, 
+            subscribers: parsedData.subscribers || 0, 
+            totalViews: parsedData.totalViews || 0, 
+            videoCount: parsedData.videoCount || 0 
+        },
+        userVideos: parsedData.userVideos || [],
+        outlierVideos: parsedData.outlierVideos || [],
         aiAnalysis: parsedData
       }
     });
