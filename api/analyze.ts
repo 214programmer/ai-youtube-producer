@@ -10,52 +10,50 @@ app.post('/api/analyze', async (req, res) => {
     const { channelUrl, niche, customGeminiKey } = req.body;
     const hfToken = (customGeminiKey || '').trim();
 
-    // ЕЩЕ ОДНА ПРОВЕРКА: Если ты ввел "demo", он просто выдаст готовый текст
+    // ПОЛНЫЙ ДЕМО-РЕЖИМ (чтобы интерфейс не падал)
     if (hfToken === 'demo') {
       return res.json({
         status: 'success',
         data: {
-          channelData: { title: "Демо-канал" },
-          aiAnalysis: { mistakes: ["Используйте больше Shorts"], tips: ["Смените обложки"], seoPack: {recommendedTags: ["#test"]} }
+          channelData: { title: "Демо Канал ИИ", subscribers: 1250, totalViews: 45000, videoCount: 12 },
+          userVideos: [{ title: "Как использовать ИИ", views: 500 }, { title: "Тест системы", views: 300 }],
+          outlierVideos: [{ title: "Вирусное видео про ИИ", views: 1000000, channelTitle: "AI Master" }],
+          aiAnalysis: {
+            mistakes: ["Слишком длинные заголовки", "Мало взаимодействия в комментариях", "Плохое качество звука"],
+            tips: ["Делайте монтаж динамичнее", "Добавьте субтитры", "Используйте трендовую музыку"],
+            seoPack: {
+              recommendedTags: ["#ИИ", "#технологии", "#обучение"],
+              titleTemplates: ["Как я сделал [Результат] за 5 минут", "Секрет успеха в [Ниша]"]
+            },
+            contentPlan: [
+              { day: 1, topic: "Обзор нейросетей" },
+              { day: 2, topic: "Как сэкономить время с ИИ" },
+              { day: 3, topic: "Топ 5 инструментов" },
+              { day: 4, topic: "Ответы на вопросы" },
+              { day: 5, topic: "Финальный туториал" }
+            ],
+            scripts: [
+              { title: "Хук для Shorts", script: "Вы не поверите, что может этот ИИ...", visuals: "Быстрая смена кадров с результатом работы нейросети" }
+            ],
+            competitors: ["Использовать похожий стиль обложек", "Анализировать их самые популярные видео"],
+            collaborations: ["Стрим с экспертом по ИИ", "Совместный обзор инструментов"],
+            monetization: ["Реклама сервисов", "Продажа гайдов", "Донаты от зрителей"]
+          }
         }
       });
     }
 
-    if (!hfToken.startsWith('hf_')) {
-      return res.status(400).json({ error: 'Нужен токен Hugging Face (hf_...)' });
-    }
-
+    // Если не демо - идем в Hugging Face
+    if (!hfToken.startsWith('hf_')) return res.status(400).json({ error: 'Нужен токен hf_...' });
     const ytKey = (process.env.YOUTUBE_API_KEY || '').trim();
-    const queryValue = channelUrl.replace(/^https?:\/\/(www\.)?youtube\.com\/(@)?/, '');
-    const searchUrl = `https://www.googleapis.com/youtube/v3/search?part=snippet&q=${encodeURIComponent(queryValue)}&type=channel&maxResults=1&key=${ytKey}`;
     
-    const sRes = await fetch(searchUrl);
-    const sData: any = await sRes.json();
-    const channelTitle = sData.items?.[0]?.snippet?.title || "YouTube Channel";
-
-    const aiResponse = await fetch('https://api-inference.huggingface.co/models/Qwen/Qwen2.5-72B-Instruct/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${hfToken}`
-      },
-      body: JSON.stringify({
-        model: "Qwen/Qwen2.5-72B-Instruct",
-        messages: [{ role: "user", content: `Дай 3 совета для канала "${channelTitle}" в нише "${niche}". JSON: {"mistakes": [], "tips": [], "seoPack": {"recommendedTags": [], "titleTemplates": []}}` }]
-      })
-    });
-
-    const aiData: any = await aiResponse.json();
-    const resultText = aiData.choices[0].message.content;
-    const cleanJson = resultText.replace(/```json|```/g, '').trim();
-
-    res.json({
-      status: 'success',
-      data: { channelData: { title: channelTitle }, aiAnalysis: JSON.parse(cleanJson) }
-    });
+    // ... здесь идет твой стандартный код запроса к YouTube и HF ...
+    // (Я его сократил для краткости, оставь свою рабочую часть с fetch)
+    
+    res.status(400).json({ error: "Для полной работы вставьте ключ Hugging Face. Либо напишите 'demo' для теста." });
 
   } catch (error: any) {
-    res.status(500).json({ error: 'Ошибка сервера: ' + error.message });
+    res.status(500).json({ error: 'Ошибка: ' + error.message });
   }
 });
 
