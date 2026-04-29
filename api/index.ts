@@ -33,7 +33,7 @@ app.post('/api/analyze', async (req, res) => {
     if (!geminiKey) throw new Error('Ключ Gemini не найден.');
 
     const genAI = new GoogleGenerativeAI(geminiKey); // ИСПРАВЛЕНО
-    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' }); // ТЕПЕРЬ ЭТО ФУНКЦИЯ
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" }); // ТЕПЕРЬ ЭТО ФУНКЦИЯ
 
     const prompt = `Ты YouTube-продюсер. Проанализируй канал "${channelTitle}" в нише "${niche}". 
     Дай стратегию: ошибки, советы, контент-план. Ответь СТРОГО в JSON: 
