@@ -47,7 +47,7 @@ app.post('/api/analyze', async (req, res) => {
         'Authorization': `Bearer ${groqKey}`
       },
       body: JSON.stringify({
-        model: "llama3-8b-8192", // Очень быстрая и умная модель
+        llama-3.3-70b-versatile", // Очень быстрая и умная модель
         messages: [{ 
             role: "user", 
             content: `Return ONLY JSON. Analyze YouTube channel "${channelTitle}" (niche: ${niche}). Give 3 mistakes and 3 tips. Format: {"mistakes": ["1","2","3"], "tips": ["1","2","3"], "seoPack": {"recommendedTags": [], "titleTemplates": []}, "contentPlan": [], "scripts": [], "competitors": [], "collaborations": [], "monetization": []}` 
