@@ -1,7 +1,5 @@
-import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
-import { GoogleGenerativeAI } from '@google/generative-ai';
 
 const app = express();
 app.use(cors());
@@ -11,10 +9,15 @@ app.post('/api/analyze', async (req, res) => {
   try {
     const { channelUrl, niche, customGeminiKey } = req.body;
     
-    // 1. YouTube часть
-    const ytKey = process.env.YOUTUBE_API_KEY;
-    if (!ytKey) throw new Error('YOUTUBE_API_KEY не найден в настройках Vercel.');
+    // В данном случае customGeminiKey — это будет твой ключ DeepSeek
+    const apiKey = sk-4556b8cd4c7b454aa64bff4c2deca5d8 || process.env.DEEPSEEK_API_KEY;
 
+    if (!apiKey) {
+      throw new Error('Пожалуйста, вставьте ваш API ключ (DeepSeek) в поле ввода.');
+    }
+
+    // 1. YouTube часть (используем ключ из настроек Vercel)
+    const ytKey = process.env.YOUTUBE_API_KEY;
     const queryValue = channelUrl.replace(/^https?:\/\/(www\.)?youtube\.com\/(@)?/, '');
     const searchUrl = `https://www.googleapis.com/youtube/v3/search?part=snippet&q=${encodeURIComponent(queryValue)}&type=channel&maxResults=1&key=${ytKey}`;
     
@@ -22,46 +25,44 @@ app.post('/api/analyze', async (req, res) => {
     const sData: any = await sRes.json();
     const channelTitle = sData.items?.[0]?.snippet?.title || "YouTube Channel";
 
-    // 2. AI часть с перебором моделей
-    const geminiKey = customGeminiKey || process.env.VITE_GEMINI_API_KEY;
-    if (!geminiKey) throw new Error('API ключ Gemini не найден.');
-
-    const genAI = new GoogleGenerativeAI(geminiKey);
-    const prompt = `Ты YouTube-продюсер. Проанализируй канал "${channelTitle}" в нише "${niche}". 
-    Ответь СТРОГО в формате JSON: 
-    {"mistakes": ["1", "2"], "tips": ["1", "2"], "seoPack": {"recommendedTags": [], "titleTemplates": []}, "contentPlan": [], "scripts": [], "competitors": [], "collaborations": [], "monetization": []}`;
-
-    // Список моделей от лучшей к самой стабильной
-    const modelsToTry = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-pro"];
-    let lastError = "";
-
-    for (const modelName of modelsToTry) {
-      try {
-        console.log(`Пробую модель: ${modelName}`);
-        const model = genAI.getGenerativeModel({ model: modelName });
-        const result = await model.generateContent(prompt);
-        const text = result.response.text().replace(/```json|```/g, '').trim();
-        
-        // Если дошли сюда - значит успех! Отправляем ответ.
-        return res.json({
-          status: 'success',
-          data: {
-            channelData: { title: channelTitle },
-            aiAnalysis: JSON.parse(text)
+    // 2. Запрос к DeepSeek
+    const response = await fetch('https://api.deepseek.com/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({
+        model: "deepseek-chat",
+        messages: [
+          {
+            role: "system",
+            content: "Ты YouTube-продюсер. Отвечай только в формате JSON."
+          },
+          {
+            role: "user",
+            content: `Проанализируй канал "${channelTitle}" в нише "${niche}". Дай 3 ошибки и 3 совета. Верни ответ СТРОГО в формате JSON: {"mistakes": ["1", "2", "3"], "tips": ["1", "2", "3"], "seoPack": {"recommendedTags": [], "titleTemplates": []}, "contentPlan": [], "scripts": [], "competitors": [], "collaborations": [], "monetization": []}`
           }
-        });
-      } catch (err: any) {
-        lastError = err.message;
-        console.warn(`Модель ${modelName} не сработала:`, lastError);
-        continue; // Пробуем следующую модель
-      }
-    }
+        ],
+        response_format: { type: 'json_object' }
+      })
+    });
 
-    // Если ни одна модель не сработала
-    throw new Error(`Ни одна модель ИИ не ответила. Последняя ошибка: ${lastError}`);
+    const aiData: any = await response.json();
+    if (aiData.error) throw new Error(aiData.error.message);
+
+    const text = aiData.choices[0].message.content;
+
+    res.json({
+      status: 'success',
+      data: {
+        channelData: { title: channelTitle },
+        aiAnalysis: JSON.parse(text)
+      }
+    });
 
   } catch (error: any) {
-    console.error('SERVER ERROR:', error.message);
+    console.error('DEEPSEEK ERROR:', error.message);
     res.status(500).json({ error: error.message });
   }
 });
