@@ -8,32 +8,20 @@ app.use(express.json());
 app.post('/api/analyze', async (req, res) => {
   try {
     const { channelUrl, niche, customGeminiKey } = req.body;
-    
-    // Возвращаем получение ключа ИИ из поля на сайте
-    const apiKey = (customGeminiKey || '').trim(); 
-
-    if (!apiKey) {
-      return res.status(400).json({ error: 'Пожалуйста, вставьте ваш API ключ в поле ввода.' });
-    }
-
-    // Ключ YouTube всё еще должен быть в Vercel (Key: YOUTUBE_API_KEY)
+    const apiKey = (customGeminiKey || '').trim();
     const ytKey = (process.env.YOUTUBE_API_KEY || '').trim();
-    if (!ytKey) {
-        return res.status(500).json({ error: 'Критическая ошибка: Добавьте YOUTUBE_API_KEY в настройки Vercel!' });
-    }
 
-    // 1. Поиск канала и получение ID
+    // 1. Поиск ID канала
     const queryValue = channelUrl.replace(/^https?:\/\/(www\.)?youtube\.com\/(@)?/, '');
     const searchRes = await fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&q=${encodeURIComponent(queryValue)}&type=channel&maxResults=1&key=${ytKey}`);
     const sData: any = await searchRes.json();
-    if (!sData.items?.length) throw new Error('Канал не найден. Проверьте ссылку.');
-    
+    if (!sData.items?.length) throw new Error('Канал не найден');
     const channelId = sData.items[0].id.channelId;
 
-    // 2. Сбор РЕАЛЬНОЙ статистики и конкурентов
+    // 2. Статистика канала и поиск реальных аутлаеров в нише
     const [statsRes, outliersRes] = await Promise.all([
       fetch(`https://www.googleapis.com/youtube/v3/channels?part=statistics,snippet&id=${channelId}&key=${ytKey}`),
-      fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&q=${encodeURIComponent(niche + " trending")}&type=video&order=viewCount&maxResults=5&key=${ytKey}`)
+      fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&q=${encodeURIComponent(niche + " trending")}&type=video&order=viewCount&maxResults=5&publishedAfter=2024-01-01T00:00:00Z&key=${ytKey}`)
     ]);
 
     const stData: any = await statsRes.json();
@@ -41,39 +29,46 @@ app.post('/api/analyze', async (req, res) => {
     const channelStats = stData.items[0].statistics;
     const channelTitle = stData.items[0].snippet.title;
 
+    // 3. ПОЛУЧЕНИЕ РЕАЛЬНЫХ ПРОСМОТРОВ ДЛЯ ГРАФИКА
+    const videosSearchRes = await fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&channelId=${channelId}&order=date&type=video&maxResults=5&key=${ytKey}`);
+    const vsData: any = await videosSearchRes.json();
+    
+    let userVideos = [];
+    if (vsData.items?.length) {
+        const videoIds = vsData.items.map((v: any) => v.id.videoId).join(',');
+        const videoStatsRes = await fetch(`https://www.googleapis.com/youtube/v3/videos?part=statistics,snippet&id=${videoIds}&key=${ytKey}`);
+        const vStData: any = await videoStatsRes.json();
+        userVideos = vStData.items.map((v: any) => ({
+            title: v.snippet.title,
+            views: parseInt(v.statistics.viewCount)
+        }));
+    }
+
     const outlierVideos = oData.items?.map((v: any) => ({
         title: v.snippet.title,
         channelTitle: v.snippet.channelTitle,
         thumbnail: v.snippet.thumbnails?.high?.url
     })) || [];
 
-    // 3. ЗАПРОС К ИИ (ПОДРОБНЫЙ, НА РУССКОМ)
+    // 4. ЗАПРОС К ИИ (ПОДРОБНЫЙ ПЛАН НА 14 ДНЕЙ)
     const aiResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
       body: JSON.stringify({
         model: "llama-3.3-70b-versatile",
         messages: [{ 
-            role: "user", 
-            content: `Ты — топовый YouTube продюсер. Проанализируй канал "${channelTitle}" в нише "${niche}". 
-            Статистика: Подписчиков ${channelStats.subscriberCount}, Просмотров ${channelStats.viewCount}.
-            
-            НАПИШИ ОЧЕНЬ МНОГО ТЕКСТА НА РУССКОМ ЯЗЫКЕ:
-            1. 5 критических ошибок (подробно).
-            2. 10 советов по росту канала.
-            3. SEO: 10 лучших тегов и 5 виральных заголовков.
-            4. КОНТЕНТ-ПЛАН НА 14 ДНЕЙ: Распиши детально каждый день (тема, идея, почему это зайдет).
-            5. СЦЕНАРИИ: 3 детальных сценария (Хук, Основная часть, Призыв).
-            6. КОНКУРЕНТЫ: 5 фишек, которые нужно внедрить прямо сейчас.
-            7. КОЛЛАБОРАЦИИ: 5 идей для совместных видео.
-            8. МОНЕТИЗАЦИЯ: 5 подробных способов заработка на этом канале.
-            
-            ОТВЕТЬ СТРОГО В JSON: 
-            {"mistakes":[], "tips":[], "seoPack":{"recommendedTags":[], "titleTemplates":[]}, "contentPlan":[{"day":1,"topic":""}], "scripts":[{"title":"","script":"","visuals":""}], "competitors":[], "collaborations":[], "monetization":[]}
-            Пиши развернуто в каждом пункте.` 
+          role: "user", 
+          content: `Ты — топовый YouTube продюсер. Проанализируй канал "${channelTitle}" в нише "${niche}". 
+          Статистика: ${JSON.stringify(channelStats)}. 
+          ТВОЯ ЗАДАЧА:
+          1. Ошибки и советы: Минимум по 5 пунктов с детальным разбором.
+          2. КОНТЕНТ-ПЛАН НА 14 ДНЕЙ: Для каждого дня напиши подробную тему роликов, заголовок и краткую суть.
+          3. Сценарии: 3 подробных сценария (Хук, Основная часть, Призыв).
+          
+          ОТВЕТЬ СТРОГО НА РУССКОМ В JSON:
+          {"mistakes": ["ошибка + почему это плохо"], "tips": ["совет + как сделать"], "seoPack": {"recommendedTags": [], "titleTemplates": []}, "contentPlan": [{"day": 1, "topic": "ПОДРОБНОЕ ОПИСАНИЕ ТЕМЫ И ИДЕИ"}], "scripts": [{"title": "", "script": "ПОЛНЫЙ ТЕКСТ", "visuals": ""}], "competitors": [], "collaborations": [], "monetization": []}` 
         }],
-        temperature: 0.5,
-        response_format: { type: 'json_object' }
+        temperature: 0.5
       })
     });
 
@@ -81,7 +76,6 @@ app.post('/api/analyze', async (req, res) => {
     const resultText = aiData.choices[0].message.content;
     const parsed = JSON.parse(resultText.match(/\{[\s\S]*\}/)![0]);
 
-    // Возвращаем всё на фронтенд
     res.json({
       status: 'success',
       data: {
@@ -91,7 +85,7 @@ app.post('/api/analyze', async (req, res) => {
             totalViews: parseInt(channelStats.viewCount), 
             videoCount: parseInt(channelStats.videoCount) 
         },
-        userVideos: [], 
+        userVideos, 
         outlierVideos,
         aiAnalysis: parsed
       }
