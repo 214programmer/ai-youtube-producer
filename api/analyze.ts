@@ -10,69 +10,72 @@ app.post('/api/analyze', async (req, res) => {
     const { channelUrl, niche, customGeminiKey } = req.body;
     const apiKey = (customGeminiKey || '').trim();
 
-    if (!apiKey.startsWith('gsk_')) {
-      return res.status(400).json({ error: 'Вставьте API ключ GROQ (начинается на gsk_)' });
+    if (apiKey === 'demo') {
+      return res.json({
+        status: 'success',
+        data: {
+          channelData: { title: "Демо Канал", subscribers: 1000, totalViews: 50000, videoCount: 10 },
+          userVideos: [], outlierVideos: [],
+          aiAnalysis: { mistakes: ["Ошибка 1"], tips: ["Совет 1"], seoPack: {recommendedTags: ["#тег"], titleTemplates: ["Заголовок"]}, contentPlan: [], scripts: [], competitors: [], collaborations: [], monetization: [] }
+        }
+      });
     }
 
     const ytKey = (process.env.YOUTUBE_API_KEY || '').trim();
-    if (!ytKey) return res.status(500).json({ error: 'YouTube API ключ не настроен в Vercel.' });
-
-    // 1. Поиск канала
     const queryValue = channelUrl.replace(/^https?:\/\/(www\.)?youtube\.com\/(@)?/, '');
     const searchUrl = `https://www.googleapis.com/youtube/v3/search?part=snippet&q=${encodeURIComponent(queryValue)}&type=channel&maxResults=1&key=${ytKey}`;
     
     const sRes = await fetch(searchUrl);
     const sData: any = await sRes.json();
-    if (!sData.items?.length) return res.status(404).json({ error: 'Канал не найден.' });
-    const channelTitle = sData.items[0].snippet.title;
+    const channelTitle = sData.items?.[0]?.snippet?.title || "YouTube Channel";
 
-    // 2. Запрос к GROQ (Llama 3.3)
+    // ЗАПРОС К ИИ
     const aiResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`
-      },
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
       body: JSON.stringify({
         model: "llama-3.3-70b-versatile",
         messages: [{ 
             role: "user", 
-            content: `Analyze YouTube channel "${channelTitle}" (niche: ${niche}). Return ONLY valid JSON object with keys: mistakes, tips, seoPack, contentPlan, scripts, competitors, collaborations, monetization. No extra words.` 
+            content: `Analyze YouTube channel "${channelTitle}" (niche: ${niche}). Return ONLY a JSON object. ALL values in arrays must be SIMPLE STRINGS, not objects. Format: {"mistakes": ["string", "string"], "tips": ["string", "string"], "seoPack": {"recommendedTags": ["#tag1"], "titleTemplates": ["template1"]}, "contentPlan": [{"day": 1, "topic": "string"}], "scripts": [{"title": "string", "script": "string", "visuals": "string"}], "competitors": ["string"], "collaborations": ["string"], "monetization": ["string"]}` 
         }],
-        temperature: 0.3
+        response_format: { type: 'json_object' }
       })
     });
 
     const aiData: any = await aiResponse.json();
-    if (aiData.error) throw new Error(aiData.error.message);
-
     const resultText = aiData.choices[0].message.content;
-    
-    // 3. Вырезаем JSON из ответа (самая важная часть!)
-    const jsonMatch = resultText.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) {
-        throw new Error("ИИ не вернул JSON. Ответ: " + resultText.substring(0, 100));
-    }
-    
-    const parsedData = JSON.parse(jsonMatch[0]);
+    const parsed = JSON.parse(resultText.match(/\{[\s\S]*\}/)![0]);
 
-  res.json({
+    // ФОРМИРУЕМ ОТВЕТ, КОТОРЫЙ НЕ СЛОМАЕТ REACT
+    res.json({
       status: 'success',
       data: {
         channelData: { 
             title: channelTitle, 
-            subscribers: parsedData.subscribers || 0, 
-            totalViews: parsedData.totalViews || 0, 
-            videoCount: parsedData.videoCount || 0 
+            subscribers: 0, 
+            totalViews: 0, 
+            videoCount: 0 
         },
-        userVideos: parsedData.userVideos || [],
-        outlierVideos: parsedData.outlierVideos || [],
-        aiAnalysis: parsedData
+        userVideos: [],
+        outlierVideos: [],
+        aiAnalysis: {
+            mistakes: Array.isArray(parsed.mistakes) ? parsed.mistakes.map(String) : [],
+            tips: Array.isArray(parsed.tips) ? parsed.tips.map(String) : [],
+            seoPack: {
+                recommendedTags: Array.isArray(parsed.seoPack?.recommendedTags) ? parsed.seoPack.recommendedTags.map(String) : [],
+                titleTemplates: Array.isArray(parsed.seoPack?.titleTemplates) ? parsed.seoPack.titleTemplates.map(String) : []
+            },
+            contentPlan: Array.isArray(parsed.contentPlan) ? parsed.contentPlan : [],
+            scripts: Array.isArray(parsed.scripts) ? parsed.scripts : [],
+            competitors: Array.isArray(parsed.competitors) ? parsed.competitors.map(String) : [],
+            collaborations: Array.isArray(parsed.collaborations) ? parsed.collaborations.map(String) : [],
+            monetization: Array.isArray(parsed.monetization) ? parsed.monetization.map(String) : []
+        }
       }
     });
 
   } catch (error: any) {
-    console.error("SERVER ERROR:", error);
     res.status(500).json({ error: error.message });
   }
 });
