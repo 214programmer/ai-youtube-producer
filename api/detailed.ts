@@ -10,9 +10,9 @@ app.post('/api/detailed', async (req, res) => {
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
       body: JSON.stringify({
         model: "llama-3.3-70b-versatile",
-        messages: [{ role: "user", content: `Ты продюсер. Сделай ГЛУБОКИЙ отчет для канала "${channelTitle}" (ниша: ${niche}). 
-        Нужен детальный контент-план на 14 дней (каждый день: Хайповый заголовок, Сценарий, Почему это наберет). 3 полных сценария, 5 способов монетизации. 
-        ПИШИ ОЧЕНЬ МНОГО И ПОДРОБНО НА РУССКОМ. 
+        messages: [{ role: "user", content: `Сделай ГЛУБОКИЙ YouTube отчет для канала "${channelTitle}" (ниша: ${niche}). 
+        Нужен детальный контент-план на 14 дней (каждый день: Хайповый заголовок, Сценарий, Психология). 3 сценария, 5 способов монетизации. 
+        ПИШИ ПОДРОБНО НА РУССКОМ. 
         ВЕРНИ JSON: {"contentPlan":[{"day":1,"topic":""}], "scripts":[{"title":"","script":"","visuals":""}], "monetization":[], "seoPack":{"recommendedTags":[],"titleTemplates":[]}}` }],
         response_format: { type: 'json_object' }
       })
