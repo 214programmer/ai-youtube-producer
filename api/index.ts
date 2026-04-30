@@ -13,14 +13,13 @@ app.post('/api/index', async (req, res) => {
   const ytKey = (process.env.YOUTUBE_API_KEY || '').trim();
 
   try {
-    // --- 1. ГЛАВНЫЙ АНАЛИЗ ---
     if (task === 'analyze') {
       const query = channelUrl.replace(/^https?:\/\/(www\.)?youtube\.com\/(@)?/, '');
       const sRes = await fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&q=${encodeURIComponent(query)}&type=channel&maxResults=1&key=${ytKey}`).then(r => r.json());
       if (!sRes.items?.length) throw new Error('Канал не найден');
       const chId = sRes.items[0].id.channelId;
 
-      const refinedNiche = niche.toLowerCase() === 'игры' ? 'геймплей обзор игры gaming 2025' : `${niche} обзор 2025`;
+      const refinedNiche = niche.toLowerCase() === 'игры' ? 'геймплей обзор игры 2025' : `${niche} обзор 2025`;
 
       const [stats, lvRes, outliers, top] = await Promise.all([
         fetch(`https://www.googleapis.com/youtube/v3/channels?part=statistics,snippet&id=${chId}&key=${ytKey}`).then(r => r.json()),
@@ -41,7 +40,7 @@ app.post('/api/index', async (req, res) => {
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
         body: JSON.stringify({
           model: "llama-3.3-70b-versatile",
-          messages: [{ role: "user", content: `Ты продюсер. Канал: "${title}", ниша: "${niche}". ХИТ: "${hitTitle}". Дай на РУССКОМ: разбор хита (почему залетел + идея клона), 5 ошибок и 5 советов. JSON: {"bestVideoAnalysis":"", "mistakes":[], "tips":[]}` }],
+          messages: [{ role: "user", content: `Ты YouTube-продюсер. Канал: "${title}" (Ниша: ${niche}). ХИТ: "${hitTitle}". Дай на РУССКОМ: 1. ПОДРОБНЫЙ разбор хита (почему залетел + идею-клона). 2. 5 жестких ошибок. 3. 5 советов. JSON: {"bestVideoAnalysis":"", "mistakes":[], "tips":[]}` }],
           response_format: { type: 'json_object' }
         })
       });
@@ -51,7 +50,7 @@ app.post('/api/index', async (req, res) => {
       return res.json({
         status: 'success',
         data: {
-          channelData: { title, subscribers: parseInt(stats.items[0].statistics.subscriberCount), totalViews: parseInt(stats.items[0].statistics.viewCount) },
+          channelData: { title, subscribers: parseInt(stats.items[0].statistics.subscriberCount), totalViews: parseInt(stats.items[0].statistics.viewCount), videoCount: parseInt(stats.items[0].statistics.videoCount) },
           userVideos,
           outlierVideos: outliers.items.map((v:any) => ({ title: v.snippet.title, thumbnail: v.snippet.thumbnails?.high?.url, url: `https://www.youtube.com/watch?v=${v.id.videoId}` })),
           aiAnalysis: parsed
@@ -59,21 +58,19 @@ app.post('/api/index', async (req, res) => {
       });
     }
 
-    // --- 2. ПОДРОБНЕЕ ---
     if (task === 'explain') {
       const aiRes = await fetch(GROQ_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
         body: JSON.stringify({
           model: "llama-3.3-70b-versatile",
-          messages: [{ role: "user", content: `Тема: "${text}". Объясни на РУССКОМ подробно: почему это важно и дай 3 шага по реализации.` }]
+          messages: [{ role: "user", content: `Тема: "${text}". Объясни на РУССКОМ подробно: почему это критично и дай пошаговый план исправления.` }]
         })
       });
       const aiData: any = await aiRes.json();
       return res.json({ explanation: aiData.choices[0].message.content });
     }
 
-    // --- 3. ПЛАН НА 14 ДНЕЙ ---
     if (task === 'detailed') {
       const aiRes = await fetch(GROQ_URL, {
         method: 'POST',
