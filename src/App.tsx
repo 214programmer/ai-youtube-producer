@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Loader2, Search, Youtube, Zap, AlertTriangle, Lightbulb, ExternalLink, HelpCircle, FileText, DollarSign, TrendingUp, BarChart3, Users, ChevronRight } from 'lucide-react';
+import { Loader2, Search, Youtube, Zap, AlertTriangle, Lightbulb, ExternalLink, HelpCircle, FileText, DollarSign, TrendingUp, BarChart3, Users, ChevronRight, CheckCircle2 } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
 export default function App() {
@@ -55,13 +55,10 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-[#050505] text-zinc-100 p-4 md:p-12 font-sans selection:bg-emerald-500/30">
-      {/* Background Glow */}
-      <div className="fixed top-0 left-1/4 w-[500px] h-[500px] bg-emerald-500/10 blur-[120px] rounded-full pointer-events-none"></div>
-      
-      <div className="max-w-7xl mx-auto space-y-12 relative z-10">
+      <div className="max-w-7xl mx-auto space-y-12">
         <header className="flex items-center space-x-5 border-b border-zinc-800/50 pb-10">
-          <div className="bg-emerald-500 p-3 rounded-2xl text-black shadow-[0_0_30px_-5px_rgba(16,185,129,0.4)]"><Youtube size={36} strokeWidth={2.5} /></div>
-          <h1 className="text-4xl font-black italic tracking-tighter uppercase">AI PRODUCER <span className="text-emerald-500">PRO</span></h1>
+          <div className="bg-emerald-500 p-3 rounded-2xl text-black shadow-[0_0_40px_-10px_rgba(16,185,129,0.4)]"><Youtube size={36} /></div>
+          <h1 className="text-4xl font-black italic tracking-tighter uppercase">AI Producer <span className="text-emerald-500 font-mono">Max</span></h1>
         </header>
 
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-12">
@@ -70,11 +67,11 @@ export default function App() {
             <div className="bg-[#0f0f11] border border-zinc-800 p-8 rounded-[40px] space-y-6 shadow-2xl sticky top-12">
               <div className="space-y-4">
                 <input placeholder="Ссылка или @ник" value={channelUrl} onChange={(e)=>setChannelUrl(e.target.value)} className="w-full bg-black border border-zinc-800 rounded-2xl p-4 text-sm outline-none focus:border-emerald-500 transition-all placeholder:text-zinc-600" />
-                <input placeholder="Ниша канала" value={niche} onChange={(e)=>setNiche(e.target.value)} className="w-full bg-black border border-zinc-800 rounded-2xl p-4 text-sm outline-none focus:border-emerald-500 transition-all placeholder:text-zinc-600" />
+                <input placeholder="Ниша" value={niche} onChange={(e)=>setNiche(e.target.value)} className="w-full bg-black border border-zinc-800 rounded-2xl p-4 text-sm outline-none focus:border-emerald-500 transition-all placeholder:text-zinc-600" />
                 <input type="password" placeholder="Ключ Groq" value={customGeminiKey} onChange={(e)=>setCustomGeminiKey(e.target.value)} className="w-full bg-black border border-zinc-800 rounded-2xl p-4 text-sm outline-none focus:border-emerald-500 transition-all placeholder:text-zinc-600" />
               </div>
               <button onClick={handleAnalyze} disabled={isLoading} className="w-full bg-emerald-600 hover:bg-emerald-500 text-black font-black py-4 rounded-2xl flex items-center justify-center transition-all shadow-xl shadow-emerald-500/20 uppercase tracking-widest text-xs">
-                {isLoading ? <Loader2 className="animate-spin" /> : "ПОЛУЧИТЬ АНАЛИЗ"}
+                {isLoading ? <Loader2 className="animate-spin" /> : "Начать анализ"}
               </button>
             </div>
           </div>
@@ -86,45 +83,43 @@ export default function App() {
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-5">
                   {[
                     {l: "Подписчики", v: data.channelData?.subscribers, i: <Users size={18}/>},
-                    {l: "Просмотры", v: data.channelData?.totalViews, i: <BarChart3 size={18}/>},
-                    {l: "Ролики", v: data.channelData?.videoCount, i: <Youtube size={18}/>},
+                    {l: "Вьюсы", v: data.channelData?.totalViews, i: <BarChart3 size={18}/>},
+                    {l: "Видео", v: data.channelData?.videoCount, i: <Youtube size={18}/>},
                     {l: "Топ ниши", v: data.outlierVideos?.length, i: <Zap size={18}/>}
                   ].map((s, i) => (
-                    <div key={i} className="bg-[#0f0f11] border border-zinc-800 p-6 rounded-[32px] text-center group hover:border-emerald-500/40 transition-all duration-500">
+                    <div key={i} className="bg-[#0f0f11] border border-zinc-800 p-6 rounded-[32px] text-center shadow-lg group hover:border-emerald-500/40 transition-all duration-500">
                       <div className="flex justify-center text-emerald-500 mb-3 group-hover:scale-110 transition-transform">{s.i}</div>
-                      <p className="text-2xl font-black text-white font-mono">{s.v?.toLocaleString()}</p>
-                      <p className="text-[10px] text-zinc-500 uppercase font-black tracking-widest mt-1">{s.l}</p>
+                      <p className="text-2xl font-black text-white font-mono leading-none">{s.v?.toLocaleString()}</p>
+                      <p className="text-[10px] text-zinc-500 uppercase font-black tracking-widest mt-2">{s.l}</p>
                     </div>
                   ))}
                 </div>
 
-                {/* HIT ANALYSIS SECTION - THE "FAVORITE" */}
+                {/* HIT ANALYSIS SECTION */}
                 <div className="relative p-10 bg-emerald-500/[0.03] border border-emerald-500/20 rounded-[50px] shadow-2xl group overflow-hidden">
-                    <Zap className="absolute -top-10 -right-10 w-48 h-42 text-emerald-500/[0.02] rotate-12" />
+                    <Zap className="absolute -top-10 -right-10 w-48 h-48 text-emerald-500/[0.02] rotate-12 group-hover:scale-110 transition-transform duration-700" />
                     <h3 className="text-2xl font-black text-emerald-400 italic mb-6 uppercase flex items-center tracking-tighter"><Zap className="mr-3 fill-emerald-500 w-5 h-5"/> Секрет вашего успеха</h3>
                     <div className="p-8 bg-black/40 rounded-[35px] border border-zinc-800/50 backdrop-blur-md">
-                        <p className="text-zinc-300 leading-relaxed text-lg italic whitespace-pre-line">{data.aiAnalysis?.bestVideoAnalysis}</p>
+                        <p className="text-zinc-300 leading-relaxed text-lg italic whitespace-pre-line border-l-2 border-emerald-500/30 pl-8">{data.aiAnalysis?.bestVideoAnalysis}</p>
                     </div>
                 </div>
 
                 {/* GRAPH */}
-                <div className="bg-[#0f0f11] border border-zinc-800 p-10 rounded-[50px] h-80 shadow-2xl relative overflow-hidden">
-                    <div className="absolute top-6 left-10 flex items-center space-x-2"><div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></div><p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Просмотры по видео</p></div>
+                <div className="bg-[#0f0f11] border border-zinc-800 p-10 rounded-[50px] h-80 shadow-2xl relative">
                     <ResponsiveContainer width="100%" height="100%">
                         <LineChart data={data.userVideos || []}>
                             <CartesianGrid stroke="#1a1a1c" vertical={false} />
                             <XAxis hide />
                             <YAxis stroke="#333" fontSize={10} axisLine={false} tickLine={false} />
-                            <Tooltip contentStyle={{backgroundColor:'#000', borderRadius:'20px', border:'1px solid #222', padding:'15px', color:'#fff'}} />
+                            <Tooltip contentStyle={{backgroundColor:'#000', borderRadius:'20px', border:'1px solid #222', padding:'15px'}} />
                             <Line type="monotone" dataKey="views" stroke="#10b981" strokeWidth={6} dot={{r:8, fill:'#10b981', strokeWidth:0}} activeDot={{r:10, fill:'#fff'}} />
                         </LineChart>
                     </ResponsiveContainer>
                 </div>
 
-                {/* DEEP BUTTON */}
                 {!deepData && (
-                    <button onClick={handleDeepReport} disabled={isDeepLoading} className="w-full bg-violet-600 hover:bg-violet-500 hover:scale-[1.01] active:scale-[0.99] h-24 rounded-[40px] flex items-center justify-center font-black italic uppercase text-2xl shadow-[0_20px_50px_-10px_rgba(124,58,237,0.3)] transition-all">
-                        {isDeepLoading ? <Loader2 className="animate-spin mr-4 w-10 h-10"/> : <FileText className="mr-4 w-10 h-10"/>} ГЛУБОКАЯ СТРАТЕГИЯ
+                    <button onClick={handleDeepReport} disabled={isDeepLoading} className="w-full bg-violet-600 hover:bg-violet-500 h-24 rounded-[40px] flex items-center justify-center font-black italic uppercase text-2xl shadow-[0_20px_50px_-10px_rgba(124,58,237,0.3)] transition-all animate-pulse">
+                        {isDeepLoading ? <Loader2 className="animate-spin mr-4 w-10 h-10"/> : <FileText className="mr-4 w-10 h-10"/>} Сгенерировать глубокий план
                     </button>
                 )}
 
@@ -134,12 +129,15 @@ export default function App() {
                         <h4 className="text-red-500 font-black uppercase text-xs tracking-[0.4em] ml-6 mb-2">Крит. Ошибки</h4>
                         {data.aiAnalysis.mistakes.map((m:string, i:number) => (
                             <div key={i} className="p-8 bg-[#0f0f11] border border-zinc-800 rounded-[40px] space-y-5 shadow-xl group hover:border-red-500/30 transition-all">
-                                <p className="text-sm text-zinc-300 leading-relaxed font-bold">“ {m} ”</p>
-                                <button onClick={()=>handleExplain(m)} className="flex items-center text-[9px] font-black text-red-500 uppercase hover:text-red-400 tracking-widest pl-1">
-                                    <ChevronRight size={14} className="mr-1"/> {explanations[m]?.loading ? "Пишу..." : "Почему это важно?"}
+                                <p className="text-sm text-zinc-300 leading-relaxed font-bold italic">“ {m} ”</p>
+                                <button onClick={()=>handleExplain(m)} className="flex items-center text-[9px] font-black text-red-500 uppercase hover:text-red-400 tracking-widest transition-colors">
+                                    <ChevronRight size={14} className="mr-1"/> {explanations[m]?.loading ? "Пишу..." : "Анализ проблемы"}
                                 </button>
                                 {explanations[m]?.text && (
-                                    <div className="mt-4 p-6 bg-black/60 rounded-[28px] border border-red-500/10 text-[13px] text-zinc-400 leading-relaxed whitespace-pre-line animate-in zoom-in-95">{explanations[m].text}</div>
+                                    <div className="mt-4 p-7 bg-black/60 rounded-[30px] border border-red-500/10 text-[13px] text-zinc-400 leading-relaxed whitespace-pre-line animate-in slide-in-from-top-4 duration-500">
+                                        <div className="flex items-center text-red-400 mb-4 uppercase text-[10px] font-bold tracking-widest"><BarChart3 size={12} className="mr-2"/> Вердикт эксперта:</div>
+                                        {explanations[m].text}
+                                    </div>
                                 )}
                             </div>
                         ))}
@@ -149,70 +147,35 @@ export default function App() {
                         {data.aiAnalysis.tips.map((t:string, i:number) => (
                             <div key={i} className="p-8 bg-[#0f0f11] border border-zinc-800 rounded-[40px] space-y-5 shadow-xl group hover:border-emerald-500/30 transition-all">
                                 <p className="text-sm text-zinc-300 leading-relaxed font-bold">{t}</p>
-                                <button onClick={()=>handleExplain(t)} className="flex items-center text-[9px] font-black text-emerald-500 uppercase hover:text-emerald-400 tracking-widest pl-1">
-                                    <ChevronRight size={14} className="mr-1"/> {explanations[t]?.loading ? "Пишу..." : "Как это сделать?"}
+                                <button onClick={()=>handleExplain(t)} className="flex items-center text-[9px] font-black text-emerald-500 uppercase hover:text-emerald-400 tracking-widest transition-colors">
+                                    <CheckCircle2 size={14} className="mr-1"/> {explanations[t]?.loading ? "Готовлю гайд..." : "Как внедрить?"}
                                 </button>
                                 {explanations[t]?.text && (
-                                    <div className="mt-4 p-6 bg-black/60 rounded-[28px] border border-emerald-500/10 text-[13px] text-zinc-400 leading-relaxed whitespace-pre-line animate-in zoom-in-95">{explanations[t].text}</div>
+                                    <div className="mt-4 p-7 bg-black/60 rounded-[30px] border border-emerald-500/10 text-[13px] text-zinc-400 leading-relaxed whitespace-pre-line animate-in slide-in-from-top-4 duration-500">
+                                        <div className="flex items-center text-emerald-400 mb-4 uppercase text-[10px] font-bold tracking-widest"><CheckCircle2 size={12} className="mr-2"/> Пошаговая реализация:</div>
+                                        {explanations[t].text}
+                                    </div>
                                 )}
                             </div>
                         ))}
                     </div>
                 </div>
 
-                {/* DEEP DATA DISPLAY */}
                 {deepData && (
                     <div className="space-y-12 pt-12 border-t border-zinc-800 animate-in slide-in-from-bottom-10 duration-1000">
                         <h3 className="text-4xl font-black text-violet-400 uppercase italic text-center tracking-tighter">План на 14 дней</h3>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                             {deepData.contentPlan.map((p:any, i:number) => (
-                                <div key={i} className="p-8 bg-[#0f0f11] border border-zinc-800 rounded-[45px] space-y-4 shadow-2xl hover:border-violet-500/30 transition-all">
-                                    <div className="flex items-center space-x-3">
-                                        <span className="bg-violet-600 text-white px-4 py-1.5 rounded-full font-black text-[9px] uppercase tracking-tighter shadow-lg shadow-violet-900/50">ДЕНЬ {p.day}</span>
-                                    </div>
+                                <div key={i} className="p-8 bg-[#0f0f11] border border-zinc-800 rounded-[45px] space-y-5 shadow-2xl hover:border-violet-500/30 transition-all">
+                                    <span className="bg-violet-600 text-white px-5 py-2 rounded-full font-black text-[9px] uppercase tracking-widest shadow-lg shadow-violet-900/40">День {p.day}</span>
                                     <p className="text-lg text-zinc-100 font-black leading-tight italic">{p.topic}</p>
-                                    <button onClick={()=>handleExplain(p.topic)} className="text-[9px] font-black text-violet-400 uppercase flex items-center hover:text-white transition-colors"><HelpCircle size={14} className="mr-2"/> Сценарий</button>
+                                    <button onClick={()=>handleExplain(p.topic)} className="text-[9px] font-black text-violet-400 uppercase flex items-center hover:text-white transition-colors"><HelpCircle size={14} className="mr-2"/> Разбор идеи</button>
                                     {explanations[p.topic]?.text && <div className="mt-3 p-5 bg-black/40 rounded-3xl border border-zinc-800 text-[11px] text-zinc-400 italic">{explanations[p.topic].text}</div>}
                                 </div>
                             ))}
                         </div>
-                        
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                            <div className="bg-[#0f0f11] border border-zinc-800 p-10 rounded-[50px] space-y-6 shadow-2xl hover:border-emerald-500/20 transition-all">
-                                <h4 className="text-emerald-500 font-black uppercase text-[11px] tracking-widest flex items-center"><DollarSign className="mr-2 w-5 h-5"/> Монетизация 2025</h4>
-                                <div className="space-y-4">
-                                    {deepData.monetization.map((m:string, idx:number) => (
-                                        <div key={idx} className="flex items-center p-4 bg-black/40 rounded-2xl border border-zinc-800/50 hover:bg-black/60 transition-colors"><div className="w-1.5 h-1.5 bg-emerald-500 rounded-full mr-4"></div><p className="text-[13px] text-zinc-400 font-medium">{m}</p></div>
-                                    ))}
-                                </div>
-                            </div>
-                            <div className="bg-[#0f0f11] border border-zinc-800 p-10 rounded-[50px] space-y-6 shadow-2xl hover:border-blue-500/20 transition-all">
-                                <h4 className="text-blue-400 font-black uppercase text-[11px] tracking-widest flex items-center"><Zap className="mr-2 w-5 h-5"/> SEO & Теги</h4>
-                                <div className="flex flex-wrap gap-2.5">
-                                    {deepData.seoPack.recommendedTags.map((tag:string, idx:number)=>(
-                                        <span key={idx} className="bg-zinc-950 border border-zinc-800 px-4 py-2 rounded-2xl text-[11px] text-zinc-400 font-mono hover:border-blue-500/40 transition-colors cursor-default">{tag}</span>
-                                    ))}
-                                </div>
-                            </div>
-                        </div>
                     </div>
                 )}
-                
-                {/* REFERENCES (CLICKABLE) */}
-                <div className="space-y-6">
-                    <h3 className="text-xl font-black italic text-zinc-500 uppercase tracking-widest ml-4">Референсы ниши</h3>
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
-                        {data.outlierVideos.map((v:any, i:number) => (
-                            <a key={i} href={v.url} target="_blank" rel="noreferrer" className="group block bg-[#0f0f11] border border-zinc-800 rounded-[35px] overflow-hidden hover:border-emerald-500 transition-all duration-500 shadow-xl">
-                                <div className="relative overflow-hidden">
-                                  <img src={v.thumbnail} className="aspect-video object-cover w-full group-hover:scale-110 transition-transform duration-700" />
-                                  <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity"><ExternalLink size={24} className="text-white drop-shadow-2xl" /></div>
-                                </div>
-                                <div className="p-5"><p className="text-[11px] font-black line-clamp-2 text-zinc-200 leading-snug">{v.title}</p></div>
-                            </a>
-                        ))}
-                    </div>
-                </div>
               </>
             )}
           </div>
