@@ -13,101 +13,82 @@ app.post('/api/index', async (req, res) => {
   const ytKey = (process.env.YOUTUBE_API_KEY || '').trim();
 
   try {
-    // --- 1. ГЛАВНЫЙ АНАЛИЗ ---
     if (task === 'analyze') {
-      let handle = channelUrl.trim();
-      if (handle.includes('@')) {
-          handle = '@' + handle.split('@').pop()?.split('/')[0].split('?')[0];
-      } else if (handle.includes('youtube.com/')) {
-          handle = '@' + handle.split('/').pop()?.split('?')[0];
-      } else if (!handle.startsWith('@')) {
-          handle = '@' + handle;
-      }
-
-      // Поиск через официальный Handle (самый точный метод)
-      let channelRes = await fetch(`https://www.googleapis.com/youtube/v3/channels?part=snippet,statistics&forHandle=${encodeURIComponent(handle)}&key=${ytKey}`).then(r => r.json());
+      // 1. НАХОДИМ ID КАНАЛА
+      let handle = channelUrl.trim().replace('https://www.youtube.com/', '').replace('youtube.com/', '').replace('@', '');
+      const searchRes = await fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&q=${encodeURIComponent(handle)}&type=channel&maxResults=1&key=${ytKey}`).then(r => r.json());
       
-      let channel;
-      if (channelRes.items?.length) {
-          channel = channelRes.items[0];
-      } else {
-          // Запасной поиск через Search
-          const searchRes = await fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&q=${encodeURIComponent(handle)}&type=channel&maxResults=1&key=${ytKey}`).then(r => r.json());
-          if (!searchRes.items?.length) throw new Error('YouTube не нашел этот канал. Проверьте @никнейм.');
-          const chId = searchRes.items[0].id.channelId;
-          const statsRes = await fetch(`https://www.googleapis.com/youtube/v3/channels?part=snippet,statistics&id=${chId}&key=${ytKey}`).then(r => r.json());
-          channel = statsRes.items[0];
-      }
+      if (!searchRes.items?.length) throw new Error('Канал не найден. Проверьте ссылку.');
+      const chId = searchRes.items[0].id.channelId;
 
-      const chId = channel.id;
-      const title = channel.snippet.title;
-
-      // Сбор данных (Статистика + Хит + Конкуренты + Последние видео)
-      const refinedNiche = `${niche} обзор 2025 trending`;
-      const [lvRes, outliers, top] = await Promise.all([
-        fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&channelId=${chId}&order=date&type=video&maxResults=5&key=${ytKey}`).then(r => r.json()),
-        fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&q=${encodeURIComponent(refinedNiche)}&type=video&order=viewCount&maxResults=4&key=${ytKey}`).then(r => r.json()),
-        fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&channelId=${chId}&order=viewCount&type=video&maxResults=1&key=${ytKey}`).then(r => r.json())
+      // 2. СОБИРАЕМ ВСЁ: Статистика + Последние видео (для хита и графика) + Конкуренты
+      const [stats, vids, outliers] = await Promise.all([
+        fetch(`https://www.googleapis.com/youtube/v3/channels?part=statistics,snippet&id=${chId}&key=${ytKey}`).then(r => r.json()),
+        fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&channelId=${chId}&order=viewCount&type=video&maxResults=5&key=${ytKey}`).then(r => r.json()),
+        fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&q=${encodeURIComponent(niche + " геймплей обзор 2025")}&type=video&order=viewCount&maxResults=4&key=${ytKey}`).then(r => r.json())
       ]);
 
-      const hitTitle = top.items?.[0]?.snippet?.title || "Не найдено";
-      const vIds = lvRes.items?.map((v:any) => v.id.videoId).join(',') || '';
-      let userVideos = [];
-      if (vIds) {
-        const vStats = await fetch(`https://www.googleapis.com/youtube/v3/videos?part=statistics,snippet&id=${vIds}&key=${ytKey}`).then(r => r.json());
-        userVideos = vStats.items?.map((v:any) => ({ title: v.snippet.title, views: parseInt(v.statistics.viewCount) })).reverse() || [];
-      }
+      const title = stats.items[0].snippet.title;
+      const hitTitle = vids.items?.[0]?.snippet?.title || "Роликов не найдено";
 
-      // Запрос к ИИ
-      const aiResponse = await fetch(GROQ_URL, {
+      // Статистика для графика
+      const vIds = vids.items.map((v:any) => v.id.videoId).join(',');
+      const vStats = await fetch(`https://www.googleapis.com/youtube/v3/videos?part=statistics,snippet&id=${vIds}&key=${ytKey}`).then(r => r.json());
+      const userVideos = vStats.items.map((v:any) => ({ title: v.snippet.title, views: parseInt(v.statistics.viewCount) }));
+
+      // ИИ АНАЛИЗ
+      const aiRes = await fetch(GROQ_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
         body: JSON.stringify({
           model: "llama-3.3-70b-versatile",
-          messages: [{ role: "user", content: `Ты элитный стратег. Канал: "${title}" (Ниша: ${niche}). ХИТ: "${hitTitle}". Дай на РУССКОМ: 1. ПОДРОБНЫЙ разбор хита (почему взлетел + идею-клона). 2. 5 жестких ошибок. 3. 5 советов. JSON: {"bestVideoAnalysis":"", "mistakes":[], "tips":[]}` }],
+          messages: [{ role: "user", content: `Ты YouTube-продюсер. Канал: "${title}" (Ниша: ${niche}). ХИТ: "${hitTitle}". 
+          Дай на РУССКОМ: 
+          1. АНАЛИЗ ХИТА: почему "${hitTitle}" взлетел? Дай идею для видео-клона. 
+          2. ОШИБКИ: 5 штук. 
+          3. СОВЕТЫ: 5 штук.
+          ВЕРНИ JSON: {"bestVideoAnalysis":"", "mistakes":[], "tips":[]}` }],
           response_format: { type: 'json_object' }
         })
       });
-      const aiData: any = await aiResponse.json();
+      const aiData: any = await aiRes.json();
       const parsed = JSON.parse(aiData.choices[0].message.content.match(/\{[\s\S]*\}/)![0]);
 
       return res.json({
         status: 'success',
         data: {
-          channelData: { title, subscribers: parseInt(channel.statistics.subscriberCount), totalViews: parseInt(channel.statistics.viewCount), videoCount: parseInt(channel.statistics.videoCount) },
+          channelData: { title, subscribers: parseInt(stats.items[0].statistics.subscriberCount), totalViews: parseInt(stats.items[0].statistics.viewCount) },
           userVideos,
-          outlierVideos: outliers.items?.map((v:any) => ({ title: v.snippet.title, thumbnail: v.snippet.thumbnails?.high?.url, url: `https://www.youtube.com/watch?v=${v.id.videoId}` })) || [],
+          outlierVideos: outliers.items.map((v:any) => ({ title: v.snippet.title, thumbnail: v.snippet.thumbnails?.high?.url, url: `https://www.youtube.com/watch?v=${v.id.videoId}` })),
           aiAnalysis: parsed
         }
       });
     }
 
-    // --- 2. ПОДРОБНЕЕ ---
     if (task === 'explain') {
-      const aiResponse = await fetch(GROQ_URL, {
+      const aiRes = await fetch(GROQ_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
         body: JSON.stringify({
           model: "llama-3.3-70b-versatile",
-          messages: [{ role: "user", content: `Тема: "${text}". Объясни на РУССКОМ подробно: почему это критично для охватов и дай пошаговую инструкцию.` }]
+          messages: [{ role: "user", content: `Тема: "${text}". Объясни на РУССКОМ максимально подробно, почему это важно для охватов и дай 3 шага реализации.` }]
         })
       });
-      const aiData: any = await aiResponse.json();
+      const aiData: any = await aiRes.json();
       return res.json({ explanation: aiData.choices[0].message.content });
     }
 
-    // --- 3. ПЛАН НА 14 ДНЕЙ ---
     if (task === 'detailed') {
-      const aiResponse = await fetch(GROQ_URL, {
+      const aiRes = await fetch(GROQ_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
         body: JSON.stringify({
           model: "llama-3.3-70b-versatile",
-          messages: [{ role: "user", content: `Сделай на РУССКОМ: 1. План на 14 дней. 2. 10 тегов. 3. 3 способа монетизации. JSON: {"contentPlan":[{"day":1,"topic":""}], "seoPack":{"recommendedTags":[]}, "monetization":[]}` }],
+          messages: [{ role: "user", content: `Сделай на РУССКОМ: 1. План на 14 дней (День: [Заголовок] | [Суть]). 2. 10 тегов. 3. 3 способа монетизации. JSON: {"contentPlan":[{"day":1,"topic":""}], "seoPack":{"recommendedTags":[]}, "monetization":[]}` }],
           response_format: { type: 'json_object' }
         })
       });
-      const aiData: any = await aiResponse.json();
+      const aiData: any = await aiRes.json();
       return res.json(JSON.parse(aiData.choices[0].message.content.match(/\{[\s\S]*\}/)![0]));
     }
   } catch (e: any) { res.status(500).json({ error: e.message }); }
