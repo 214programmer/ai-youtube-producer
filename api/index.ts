@@ -14,16 +14,15 @@ app.post('/api/index', async (req, res) => {
 
   try {
     if (task === 'analyze') {
-      // УЛУЧШЕННЫЙ ПОИСК: Вырезаем только суть ника
+      // УМНЫЙ ПОИСК: Не обрезаем @, так как поиск по нему точнее
       let query = channelUrl.trim();
       if (query.includes('youtube.com/')) {
-          query = query.split('youtube.com/').pop()?.replace('@', '').split('/')[0] || '';
-      } else {
-          query = query.replace('@', '');
+          const parts = query.split('youtube.com/');
+          query = parts[parts.length - 1].split('/')[0].split('?')[0];
       }
       
       const sRes = await fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&q=${encodeURIComponent(query)}&type=channel&maxResults=1&key=${ytKey}`).then(r => r.json());
-      if (!sRes.items?.length) throw new Error('Канал не найден. Попробуйте ввести никнейм через @');
+      if (!sRes.items?.length) throw new Error('Канал не найден. Проверьте правильность написания @ника');
       const chId = sRes.items[0].id.channelId;
 
       const refinedNiche = niche.toLowerCase() === 'игры' ? 'геймплей обзор игры gaming 2025' : `${niche} обзор 2025`;
@@ -47,7 +46,7 @@ app.post('/api/index', async (req, res) => {
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
         body: JSON.stringify({
           model: "llama-3.3-70b-versatile",
-          messages: [{ role: "user", content: `Ты — топовый YouTube-продюсер. Проанализируй канал: "${title}" (Ниша: ${niche}). ХИТ: "${hitTitle}". Дай на РУССКОМ: 1. ПОДРОБНЫЙ разбор хита (почему залетел + идею-клона). 2. 5 жестких ошибок. 3. 5 советов. JSON: {"bestVideoAnalysis":"", "mistakes":[], "tips":[]}` }],
+          messages: [{ role: "user", content: `Ты — топовый YouTube-продюсер. Канал: "${title}" (Ниша: ${niche}). ХИТ: "${hitTitle}". Дай на РУССКОМ: 1. РАЗБОР ХИТА (триггеры + идея клона). 2. 5 жестких ошибок. 3. 5 советов. JSON: {"bestVideoAnalysis":"", "mistakes":[], "tips":[]}` }],
           response_format: { type: 'json_object' }
         })
       });
@@ -71,7 +70,7 @@ app.post('/api/index', async (req, res) => {
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
         body: JSON.stringify({
           model: "llama-3.3-70b-versatile",
-          messages: [{ role: "user", content: `Тема: "${text}". Объясни на РУССКОМ максимально подробно, почему это критично для YouTube алгоритмов и дай пошаговый план из 3 пунктов. Пиши эмоционально и экспертно.` }]
+          messages: [{ role: "user", content: `Тема: "${text}". Объясни на РУССКОМ подробно, почему это критично для YouTube алгоритмов 2025 и дай пошаговый план из 3 пунктов.` }]
         })
       });
       const aiData: any = await aiRes.json();
@@ -84,7 +83,7 @@ app.post('/api/index', async (req, res) => {
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
         body: JSON.stringify({
           model: "llama-3.3-70b-versatile",
-          messages: [{ role: "user", content: `Сделай на РУССКОМ: 1. План на 14 дней (День: [Тема] | [Почему залетит]). 2. 10 тегов. 3. 3 способа монетизации. JSON: {"contentPlan":[{"day":1,"topic":""}], "seoPack":{"recommendedTags":[]}, "monetization":[]}` }],
+          messages: [{ role: "user", content: `Сделай на РУССКОМ: 1. План на 14 дней (День: [Название] | [Краткая суть]). 2. 10 тегов. 3. 3 способа монетизации. JSON: {"contentPlan":[{"day":1,"topic":""}], "seoPack":{"recommendedTags":[]}, "monetization":[]}` }],
           response_format: { type: 'json_object' }
         })
       });
