@@ -18,36 +18,25 @@ app.post('/api/analyze', async (req, res) => {
     if (!sData.items?.length) throw new Error('Канал не найден');
     const channelId = sData.items[0].id.channelId;
 
-    // 2. Сбор данных (Статистика + Аутлаеры + Хит + Видео для графика)
-    const nicheSearch = niche.length < 4 ? `${niche} нейросети технологии обзор` : `${niche} обзор технологии`;
-    
-    const [statsRes, outliersRes, topVideoRes, latestVideosRes] = await Promise.all([
+    // 2. Сбор данных (Статистика + Хит + Последние 5 видео)
+    const [statsRes, topVideoRes, latestVideosRes] = await Promise.all([
       fetch(`https://www.googleapis.com/youtube/v3/channels?part=statistics,snippet&id=${channelId}&key=${ytKey}`),
-      fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&q=${encodeURIComponent(nicheSearch)}&type=video&order=viewCount&maxResults=5&publishedAfter=2024-01-01T00:00:00Z&key=${ytKey}`),
       fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&channelId=${channelId}&order=viewCount&type=video&maxResults=1&key=${ytKey}`),
       fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&channelId=${channelId}&order=date&type=video&maxResults=5&key=${ytKey}`)
     ]);
 
     const stData: any = await statsRes.json();
-    const oData: any = await outliersRes.json();
     const tData: any = await topVideoRes.json();
     const lvData: any = await latestVideosRes.json();
 
     const channelStats = stData.items[0].statistics;
     const channelTitle = stData.items[0].snippet.title;
+    const bestVideoTitle = tData.items?.[0]?.snippet?.title || "Не найдено";
+    const recentTitles = lvData.items?.map((v: any) => v.snippet.title) || [];
 
-    // СБОР ДАННЫХ ДЛЯ ГРАФИКА (с реальными просмотрами)
-    let userVideos = [];
-    if (lvData.items?.length) {
-        const videoIds = lvData.items.map((v: any) => v.id.videoId).join(',');
-        const vStats = await fetch(`https://www.googleapis.com/youtube/v3/videos?part=statistics,snippet&id=${videoIds}&key=${ytKey}`).then(r => r.json());
-        userVideos = vStats.items.map((v: any) => ({
-            title: v.snippet.title,
-            views: parseInt(v.statistics.viewCount)
-        })).reverse();
-    }
-
-    // Референсы со ссылками
+    // 3. Умный поиск конкурентов (используем только нишу)
+    const outliersRes = await fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&q=${encodeURIComponent(niche + " обзор")}&type=video&order=viewCount&maxResults=5&key=${ytKey}`);
+    const oData: any = await outliersRes.json();
     const outlierVideos = oData.items?.map((v: any) => ({
         title: v.snippet.title,
         channelTitle: v.snippet.channelTitle,
@@ -55,9 +44,7 @@ app.post('/api/analyze', async (req, res) => {
         url: `https://www.youtube.com/watch?v=${v.id.videoId}`
     })) || [];
 
-    const bestVideoTitle = tData.items?.[0]?.snippet?.title || "Не найдено";
-
-    // 3. ЗАПРОС К ИИ (ЖЕСТКИЕ ТРЕБОВАНИЯ К ДЕТАЛИЗАЦИИ)
+    // 4. ЖЕСТКИЙ ЗАПРОС К ИИ С ПРОВЕРКОЙ КОНТЕКСТА
     const aiResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
@@ -65,23 +52,27 @@ app.post('/api/analyze', async (req, res) => {
         model: "llama-3.3-70b-versatile",
         messages: [{ 
             role: "user", 
-            content: `Ты — топовый YouTube продюсер. Твоя задача — спасти канал "${channelTitle}" (ниша: ${niche}).
+            content: `Ты — элитный YouTube продюсер-аналитик. 
             
-            АНАЛИЗ ТВОЕГО ХИТА: "${bestVideoTitle}". 
+            ДАННЫЕ КАНАЛА:
+            - Название: "${channelTitle}"
+            - Ниша, которую ввел пользователь: "${niche}"
+            - САМОЕ ПОПУЛЯРНОЕ ВИДЕО (Хит): "${bestVideoTitle}"
+            - ПОСЛЕДНИЕ 5 ВИДЕО: ${recentTitles.join(', ')}
             
-            ТРЕБОВАНИЯ К ОТВЕТУ (НА РУССКОМ):
-            1. ХИТ: Почему "${bestVideoTitle}" залетело? Дай идею "Клона" с заголовком и объясни, почему она наберет в 2 раза больше.
-            2. КОНТЕНТ-ПЛАН НА 14 ДНЕЙ: Для каждого дня напиши: 
-               - Кликбейтный заголовок.
-               - Сценарий: ХУК (первые 5 сек), СУТЬ (3 тезиса), ПРИЗЫВ.
-               - ПОЧЕМУ ЭТО ЗАЛЕТИТ: Психологический триггер.
-            3. МОНЕТИЗАЦИЯ: 3 способа заработать в нише ${niche} без AdSense.
+            ТВОЯ ПЕРВАЯ ЗАДАЧА (КРИТИКА): 
+            Сравни нишу "${niche}" с реальными названиями видео. Если пользователь врет (например, пишет "авто", а снимает про "носки"), начни раздел ошибок с жесткого разоблачения этого несоответствия. Объясни, что алгоритмы в шоке от такой каши.
+
+            ТВОЯ ВТОРАЯ ЗАДАЧА:
+            1. ХИТ: Почему "${bestVideoTitle}" реально залетело? (Дай глубокий психологический анализ).
+            2. КЛОН: Предложи идею видео, которая объединит реальный успех канала с заявленной нишей "${niche}" (если это возможно), или предложи сменить нишу.
+            3. ПЛАН НА 14 ДНЕЙ: Распиши ПОДРОБНО (Заголовок, сценарий из 3 актов, почему это наберет просмотры).
 
             ВЕРНИ JSON: 
             {
-              "mistakes": ["минимум 5"], 
-              "tips": ["анализ хита + идея клона + 5 советов"], 
-              "contentPlan": [{"day":1, "topic": "ЗАГОЛОВОК | СЦЕНАРИЙ | ПОЧЕМУ ЗАЛЕТИТ"}],
+              "mistakes": ["минимум 5 жестких ошибок"], 
+              "tips": ["анализ хита + идея клона + 5 стратегий"], 
+              "contentPlan": [{"day":1, "topic": "ЗАГОЛОВОК | СЦЕНАРИЙ | ТРИГГЕР КЛИКА"}],
               "seoPack": {"recommendedTags":[], "titleTemplates":[]},
               "scripts": [], "competitors": [], "collaborations": [], "monetization": []
             }` 
@@ -104,7 +95,7 @@ app.post('/api/analyze', async (req, res) => {
             totalViews: parseInt(channelStats.viewCount), 
             videoCount: parseInt(channelStats.videoCount) 
         },
-        userVideos, 
+        userVideos: [], // Тут всё еще можно добавить реальную динамику, если нужно
         outlierVideos,
         aiAnalysis: parsed
       }
