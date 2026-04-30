@@ -11,59 +11,54 @@ app.post('/api/analyze', async (req, res) => {
     const apiKey = (customGeminiKey || '').trim(); 
     const ytKey = (process.env.YOUTUBE_API_KEY || '').trim();
 
-    if (!apiKey) return res.status(400).json({ error: 'Введите API ключ' });
-    if (!ytKey) return res.status(500).json({ error: 'YOUTUBE_API_KEY не настроен' });
+    if (!apiKey) return res.status(400).json({ error: 'Вставьте API ключ Groq' });
+    if (!ytKey) return res.status(500).json({ error: 'YouTube API ключ не настроен' });
 
-    // 1. Поиск ID канала
-    const queryValue = channelUrl.replace(/^https?:\/\/(www\.)?youtube\.com\/(@)?/, '');
-    const searchRes = await fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&q=${encodeURIComponent(queryValue)}&type=channel&maxResults=1&key=${ytKey}`).then(r => r.json());
-    if (!searchRes.items?.length) throw new Error('Канал не найден');
-    const channelId = searchRes.items[0].id.channelId;
+    // 1. YouTube Поиск
+    const query = channelUrl.replace(/^https?:\/\/(www\.)?youtube\.com\/(@)?/, '');
+    const sRes = await fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&q=${encodeURIComponent(query)}&type=channel&maxResults=1&key=${ytKey}`).then(r => r.json());
+    if (!sRes.items?.length) throw new Error('Канал не найден');
+    const channelId = sRes.items[0].id.channelId;
 
-    const nicheSearch = `${niche} обзор 2024 trending`;
-
-    // 2. Сбор данных YouTube
-    const [statsRes, lvRes, outliersRes] = await Promise.all([
+    // 2. Статистика и Видео
+    const [statsRes, vRes] = await Promise.all([
       fetch(`https://www.googleapis.com/youtube/v3/channels?part=statistics,snippet&id=${channelId}&key=${ytKey}`).then(r => r.json()),
-      fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&channelId=${channelId}&order=date&type=video&maxResults=5&key=${ytKey}`).then(r => r.json()),
-      fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&q=${encodeURIComponent(nicheSearch)}&type=video&order=viewCount&maxResults=4&key=${ytKey}`).then(r => r.json())
+      fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&channelId=${channelId}&order=date&type=video&maxResults=5&key=${ytKey}`).then(r => r.json())
     ]);
 
     const channelStats = statsRes.items[0].statistics;
     const channelTitle = statsRes.items[0].snippet.title;
+    const recentVideos = vRes.items.map((v: any) => v.snippet.title).join(', ');
 
-    // График
-    const videoIds = lvRes.items.map((v: any) => v.id.videoId).join(',');
-    const vStats = await fetch(`https://www.googleapis.com/youtube/v3/videos?part=statistics,snippet&id=${videoIds}&key=${ytKey}`).then(r => r.json());
-    const userVideos = vStats.items.map((v: any) => ({ title: v.snippet.title, views: parseInt(v.statistics.viewCount) })).reverse();
+    // 3. ТРОЙНОЙ АНАЛИЗ ИИ (Чтобы не было банальностей)
+    const prompt = `Ты жесткий YouTube-продюсер. Канал: "${channelTitle}", Ниша: "${niche}". Последние видео: ${recentVideos}.
+    Проведи глубокий разбор:
+    1. Ошибки: 5 жестких ошибок (почему они убивают охваты).
+    2. Советы: 10 тактик роста (психология удержания, триггеры клика, работа с алгоритмами 2025).
+    3. Контент-план: 14 дней (День, Заголовок, Сценарий, Триггер клика).
+    4. Стратегия: SEO (10 тегов), 5 идей коллабораций, 5 способов монетизации.
+    
+    ОТВЕТЬ СТРОГО JSON: {"mistakes":[], "tips":[], "seoPack":{"recommendedTags":[], "titleTemplates":[]}, "contentPlan":[{"day":1,"topic":""}], "competitors":[], "collaborations":[], "monetization":[]}
+    Пиши максимально подробно, не будь банальным!`;
 
-    // Референсы
-    const outlierVideos = outliersRes.items.map((v: any) => ({
-        title: v.snippet.title,
-        channelTitle: v.snippet.channelTitle,
-        thumbnail: v.snippet.thumbnails?.high?.url,
-        url: `https://www.youtube.com/watch?v=${v.id.videoId}`
-    }));
-
-    // 3. БЫСТРЫЙ ИИ АУДИТ (Только ошибки и советы)
     const aiResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
       body: JSON.stringify({
         model: "llama-3.3-70b-versatile",
-        messages: [{ role: "user", content: `Краткий аудит канала "${channelTitle}" (ниша: ${niche}). Дай 5 ошибок и 5 советов на РУССКОМ. JSON: {"mistakes":["1","2"], "tips":["1","2"]}` }],
+        messages: [{ role: "user", content: prompt }],
         response_format: { type: 'json_object' }
       })
     });
-    
+
     const aiData: any = await aiResponse.json();
-    const parsedAi = JSON.parse(aiData.choices[0].message.content.match(/\{[\s\S]*\}/)![0]);
+    const parsed = JSON.parse(aiData.choices[0].message.content.match(/\{[\s\S]*\}/)![0]);
 
     res.json({
       status: 'success',
       data: {
         channelData: { title: channelTitle, subscribers: parseInt(channelStats.subscriberCount), totalViews: parseInt(channelStats.viewCount), videoCount: parseInt(channelStats.videoCount) },
-        userVideos, outlierVideos, aiAnalysis: parsedAi
+        aiAnalysis: parsed
       }
     });
   } catch (e: any) { res.status(500).json({ error: e.message }); }
