@@ -14,50 +14,36 @@ app.post('/api/index', async (req, res) => {
 
   try {
     if (task === 'analyze') {
-      // 1. УЛЬТРА-СМАРТ ПОИСК КАНАЛА
       let rawInput = channelUrl.trim();
-      let searchUrl = '';
-      let isChannelId = false;
-
-      // Сценарий А: Это прямая ссылка с ID (начинается на UC)
-      if (rawInput.includes('/channel/UC')) {
-        const id = rawInput.split('/channel/')[1].split('/')[0].split('?')[0];
-        searchUrl = `https://www.googleapis.com/youtube/v3/channels?part=snippet,statistics&id=${id}&key=${ytKey}`;
-        isChannelId = true;
-      } 
-      // Сценарий Б: Это @handle или никнейм (самый частый случай)
-      else {
-        // Вытаскиваем ник, убираем всё лишнее
-        let handle = rawInput;
-        if (handle.includes('youtube.com/')) {
-            handle = handle.split('youtube.com/')[1].split('/')[0].split('?')[0];
-        }
-        // Если ника нет @, добавляем, так как YouTube Search лучше ищет handles с @
-        if (!handle.startsWith('@') && !handle.includes(' ')) {
-           handle = '@' + handle; 
-        }
-
-        // Ищем канал по этому handle
-        searchUrl = `https://www.googleapis.com/youtube/v3/search?part=snippet&q=${encodeURIComponent(handle)}&type=channel&maxResults=1&key=${ytKey}`;
-      }
-
-      // Выполняем поиск
-      const sRes = await fetch(searchUrl).then(r => r.json());
+      let chId = '';
       
-      if (!sRes.items?.length) {
-          throw new Error(`Канал не найден. Убедитесь, что вы ввели правильный @никнейм или полную ссылку.`);
+      // 1. ВЫРЕЗАЕМ ЧИСТЫЙ ХЕНДЛ (например @MarkBulah)
+      let handle = rawInput;
+      if (handle.includes('youtube.com/')) {
+          handle = handle.split('youtube.com/').pop()?.split('/')[0].split('?')[0] || handle;
+      }
+      if (!handle.startsWith('@') && !handle.includes('UC')) handle = '@' + handle;
+
+      // 2. МЕТОД А: Поиск через официальный Handle (самый точный для 2025 года)
+      const handleRes = await fetch(`https://www.googleapis.com/youtube/v3/channels?part=snippet,statistics&forHandle=${encodeURIComponent(handle)}&key=${ytKey}`).then(r => r.json());
+      
+      if (handleRes.items?.length) {
+          chId = handleRes.items[0].id;
+      } else {
+          // МЕТОД Б: Поиск через Search (если хендл не сработал)
+          const searchRes = await fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&q=${encodeURIComponent(handle)}&type=channel&maxResults=1&key=${ytKey}`).then(r => r.json());
+          if (searchRes.items?.length) {
+              chId = searchRes.items[0].id.channelId;
+          } else {
+              throw new Error('Канал не найден. Попробуйте скопировать ссылку из адресной строки YouTube.');
+          }
       }
 
-      // В зависимости от типа поиска, ID канала лежит в разных местах
-      const chId = isChannelId ? sRes.items[0].id : sRes.items[0].id.channelId;
-
-      const refinedNiche = niche.toLowerCase() === 'игры' ? 'геймплей обзор игры 2025' : `${niche} обзор 2025`;
-
+      // 3. СБОР ВСЕХ ДАННЫХ
       const [stats, lvRes, outliers, top] = await Promise.all([
-        // Если это был поиск по ID, статистика уже есть в sRes (но сделаем запрос для надежности)
         fetch(`https://www.googleapis.com/youtube/v3/channels?part=statistics,snippet&id=${chId}&key=${ytKey}`).then(r => r.json()),
         fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&channelId=${chId}&order=date&type=video&maxResults=5&key=${ytKey}`).then(r => r.json()),
-        fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&q=${encodeURIComponent(refinedNiche)}&type=video&order=viewCount&maxResults=4&key=${ytKey}`).then(r => r.json()),
+        fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&q=${encodeURIComponent(niche + " хайп 2025")}&type=video&order=viewCount&maxResults=4&key=${ytKey}`).then(r => r.json()),
         fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&channelId=${chId}&order=viewCount&type=video&maxResults=1&key=${ytKey}`).then(r => r.json())
       ]);
 
@@ -73,12 +59,12 @@ app.post('/api/index', async (req, res) => {
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
         body: JSON.stringify({
           model: "llama-3.3-70b-versatile",
-          messages: [{ role: "user", content: `Ты YouTube-продюсер. Канал: "${title}" (Ниша: ${niche}). ХИТ: "${hitTitle}". Дай на РУССКОМ: 1. ПОДРОБНЫЙ разбор хита (почему залетел + идею-клона). 2. 5 жестких ошибок. 3. 5 советов. JSON: {"bestVideoAnalysis":"", "mistakes":[], "tips":[]}` }],
+          messages: [{ role: "user", content: `Ты — топовый YouTube продюсер. Канал: "${title}" (Ниша: ${niche}). ХИТ: "${hitTitle}". Дай на РУССКОМ: 1. РАЗБОР ХИТА (триггеры + идея клона). 2. 5 жестких ошибок. 3. 5 советов. JSON: {"bestVideoAnalysis":"", "mistakes":[], "tips":[]}` }],
           response_format: { type: 'json_object' }
         })
       });
       const aiData: any = await aiRes.json();
-      const parsed = JSON.parse(aiData.choices[0].message.content);
+      const parsed = JSON.parse(aiData.choices[0].message.content.match(/\{[\s\S]*\}/)![0]);
 
       return res.json({
         status: 'success',
@@ -91,15 +77,13 @@ app.post('/api/index', async (req, res) => {
       });
     }
 
-    // ... здесь остался твой код для task === 'explain' и task === 'detailed'
-
     if (task === 'explain') {
       const aiRes = await fetch(GROQ_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
         body: JSON.stringify({
           model: "llama-3.3-70b-versatile",
-          messages: [{ role: "user", content: `Тема: "${text}". Объясни на РУССКОМ подробно: почему это важно для алгоритмов 2025 и дай план исправления из 3 шагов.` }]
+          messages: [{ role: "user", content: `Тема: "${text}". Объясни на РУССКОМ максимально подробно, почему это критично для охватов и дай пошаговую инструкцию из 3-5 пунктов. Пиши экспертно и вдохновляюще.` }]
         })
       });
       const aiData: any = await aiRes.json();
@@ -112,7 +96,7 @@ app.post('/api/index', async (req, res) => {
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
         body: JSON.stringify({
           model: "llama-3.3-70b-versatile",
-          messages: [{ role: "user", content: `Сделай на РУССКОМ детальный план на 14 дней для канала "${channelTitle}". JSON: {"contentPlan":[{"day":1,"topic":""}]}` }],
+          messages: [{ role: "user", content: `Сделай на РУССКОМ: 1. План на 14 дней. 2. 10 тегов. 3. 3 способа монетизации. JSON: {"contentPlan":[{"day":1,"topic":""}], "seoPack":{"recommendedTags":[]}, "monetization":[]}` }],
           response_format: { type: 'json_object' }
         })
       });
