@@ -16,24 +16,22 @@ app.post('/api/analyze', async (req, res) => {
     if (!searchRes.items?.length) throw new Error('Канал не найден');
     const channelId = searchRes.items[0].id.channelId;
 
-    // Улучшаем поиск конкурентов (только Игры/Ниша)
-    const nicheSearch = `${niche} обзор 2024 trending`;
+    // УМНЫЙ ПОИСК: добавляем "геймплей обзор", если ниша Игры
+    const refinedNiche = niche.toLowerCase() === 'игры' ? 'геймплей обзор игры' : niche;
 
     const [statsRes, lvRes, outliersRes] = await Promise.all([
       fetch(`https://www.googleapis.com/youtube/v3/channels?part=statistics,snippet&id=${channelId}&key=${ytKey}`).then(r => r.json()),
       fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&channelId=${channelId}&order=date&type=video&maxResults=5&key=${ytKey}`).then(r => r.json()),
-      fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&q=${encodeURIComponent(nicheSearch)}&type=video&order=viewCount&maxResults=5&key=${ytKey}`).then(r => r.json())
+      fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&q=${encodeURIComponent(refinedNiche + " trending 2024")}&type=video&order=viewCount&maxResults=6&key=${ytKey}`).then(r => r.json())
     ]);
 
     const channelStats = statsRes.items[0].statistics;
     const channelTitle = statsRes.items[0].snippet.title;
 
-    // График
     const videoIds = lvRes.items.map((v: any) => v.id.videoId).join(',');
     const vStats = await fetch(`https://www.googleapis.com/youtube/v3/videos?part=statistics,snippet&id=${videoIds}&key=${ytKey}`).then(r => r.json());
     const userVideos = vStats.items.map((v: any) => ({ title: v.snippet.title, views: parseInt(v.statistics.viewCount) })).reverse();
 
-    // Референсы
     const outlierVideos = outliersRes.items.map((v: any) => ({
         title: v.snippet.title,
         channelTitle: v.snippet.channelTitle,
@@ -41,13 +39,12 @@ app.post('/api/analyze', async (req, res) => {
         url: `https://www.youtube.com/watch?v=${v.id.videoId}`
     }));
 
-    // Быстрый аудит
     const aiResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
       body: JSON.stringify({
         model: "llama-3.3-70b-versatile",
-        messages: [{ role: "user", content: `Дай краткий аудит для канала "${channelTitle}" (ниша: ${niche}) на русском. 3 ошибки и 3 совета. JSON: {"mistakes":[], "tips":[]}` }],
+        messages: [{ role: "user", content: `Дай краткий аудит на РУССКОМ для канала "${channelTitle}" (ниша: ${niche}). 3 ошибки и 3 совета. JSON: {"mistakes":[], "tips":[]}` }],
         response_format: { type: 'json_object' }
       })
     });
