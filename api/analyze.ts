@@ -18,35 +18,46 @@ app.post('/api/analyze', async (req, res) => {
     if (!sData.items?.length) throw new Error('Канал не найден');
     const channelId = sData.items[0].id.channelId;
 
-    // 2. Сбор статистики, конкурентов и САМОГО ПОПУЛЯРНОГО видео пользователя
-    const [statsRes, outliersRes, topVideoRes] = await Promise.all([
+    // 2. Сбор данных (Статистика + Аутлаеры + Хит + Видео для графика)
+    const nicheSearch = niche.length < 4 ? `${niche} нейросети технологии обзор` : `${niche} обзор технологии`;
+    
+    const [statsRes, outliersRes, topVideoRes, latestVideosRes] = await Promise.all([
       fetch(`https://www.googleapis.com/youtube/v3/channels?part=statistics,snippet&id=${channelId}&key=${ytKey}`),
-      fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&q=${encodeURIComponent(niche + " хайп обзор")}&type=video&order=viewCount&maxResults=5&key=${ytKey}`),
-      fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&channelId=${channelId}&order=viewCount&type=video&maxResults=1&key=${ytKey}`)
+      fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&q=${encodeURIComponent(nicheSearch)}&type=video&order=viewCount&maxResults=5&publishedAfter=2024-01-01T00:00:00Z&key=${ytKey}`),
+      fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&channelId=${channelId}&order=viewCount&type=video&maxResults=1&key=${ytKey}`),
+      fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&channelId=${channelId}&order=date&type=video&maxResults=5&key=${ytKey}`)
     ]);
 
     const stData: any = await statsRes.json();
     const oData: any = await outliersRes.json();
     const tData: any = await topVideoRes.json();
+    const lvData: any = await latestVideosRes.json();
 
     const channelStats = stData.items[0].statistics;
     const channelTitle = stData.items[0].snippet.title;
-    
-    // Твое самое популярное видео
-    const bestVideo = tData.items?.[0] ? {
-        title: tData.items[0].snippet.title,
-        id: tData.items[0].id.videoId
-    } : null;
 
-    // Конкуренты (теперь со ССЫЛКАМИ)
+    // СБОР ДАННЫХ ДЛЯ ГРАФИКА (с реальными просмотрами)
+    let userVideos = [];
+    if (lvData.items?.length) {
+        const videoIds = lvData.items.map((v: any) => v.id.videoId).join(',');
+        const vStats = await fetch(`https://www.googleapis.com/youtube/v3/videos?part=statistics,snippet&id=${videoIds}&key=${ytKey}`).then(r => r.json());
+        userVideos = vStats.items.map((v: any) => ({
+            title: v.snippet.title,
+            views: parseInt(v.statistics.viewCount)
+        })).reverse();
+    }
+
+    // Референсы со ссылками
     const outlierVideos = oData.items?.map((v: any) => ({
         title: v.snippet.title,
         channelTitle: v.snippet.channelTitle,
         thumbnail: v.snippet.thumbnails?.high?.url,
-        url: `https://www.youtube.com/watch?v=${v.id.videoId}` // ТЕПЕРЬ МОЖНО ПЕРЕЙТИ
+        url: `https://www.youtube.com/watch?v=${v.id.videoId}`
     })) || [];
 
-    // 3. ЗАПРОС К ИИ (ЖЕСТКАЯ АНАЛИТИКА)
+    const bestVideoTitle = tData.items?.[0]?.snippet?.title || "Не найдено";
+
+    // 3. ЗАПРОС К ИИ (ЖЕСТКИЕ ТРЕБОВАНИЯ К ДЕТАЛИЗАЦИИ)
     const aiResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
@@ -54,30 +65,28 @@ app.post('/api/analyze', async (req, res) => {
         model: "llama-3.3-70b-versatile",
         messages: [{ 
             role: "user", 
-            content: `Ты — YouTube-стратег топ-уровня. Анализ канала "${channelTitle}" (ниша: ${niche}).
+            content: `Ты — топовый YouTube продюсер. Твоя задача — спасти канал "${channelTitle}" (ниша: ${niche}).
             
-            ТВОЕ САМОЕ ПОПУЛЯРНОЕ ВИДЕО: "${bestVideo?.title || 'Нет данных'}".
+            АНАЛИЗ ТВОЕГО ХИТА: "${bestVideoTitle}". 
             
-            ЗАДАЧА НА РУССКОМ ЯЗЫКЕ:
-            1. АНАЛИЗ ХИТА: Объясни, почему видео "${bestVideo?.title}" стало самым популярным. Какие триггеры там сработали?
-            2. ИДЕЯ-КЛОН: Предложи новую идею видео на основе этого хита, которая наберет еще больше. Объясни почему.
-            3. КОНТЕНТ-ПЛАН НА 14 ДНЕЙ: Никакой воды! Каждый день: Заголовок + Сценарий (Хук/Суть/Финал) + Психология клика.
-            4. МОНЕТИЗАЦИЯ: 3 способа заработать именно в нише ${niche} прямо сейчас.
+            ТРЕБОВАНИЯ К ОТВЕТУ (НА РУССКОМ):
+            1. ХИТ: Почему "${bestVideoTitle}" залетело? Дай идею "Клона" с заголовком и объясни, почему она наберет в 2 раза больше.
+            2. КОНТЕНТ-ПЛАН НА 14 ДНЕЙ: Для каждого дня напиши: 
+               - Кликбейтный заголовок.
+               - Сценарий: ХУК (первые 5 сек), СУТЬ (3 тезиса), ПРИЗЫВ.
+               - ПОЧЕМУ ЭТО ЗАЛЕТИТ: Психологический триггер.
+            3. МОНЕТИЗАЦИЯ: 3 способа заработать в нише ${niche} без AdSense.
 
-            ВЕРНИ СТРОГО JSON: 
+            ВЕРНИ JSON: 
             {
-              "mistakes": [], 
-              "tips": [], 
-              "bestVideoAnalysis": "почему залетело + идея клона + почему она сработает",
-              "seoPack": {"recommendedTags":[], "titleTemplates":[]}, 
-              "contentPlan": [{"day":1, "topic":"ДЕТАЛЬНЫЙ ПЛАН: Заголовок, Сценарий, Психология"}], 
-              "scripts": [], 
-              "competitors": [], 
-              "collaborations": [], 
-              "monetization": []
+              "mistakes": ["минимум 5"], 
+              "tips": ["анализ хита + идея клона + 5 советов"], 
+              "contentPlan": [{"day":1, "topic": "ЗАГОЛОВОК | СЦЕНАРИЙ | ПОЧЕМУ ЗАЛЕТИТ"}],
+              "seoPack": {"recommendedTags":[], "titleTemplates":[]},
+              "scripts": [], "competitors": [], "collaborations": [], "monetization": []
             }` 
         }],
-        temperature: 0.6,
+        temperature: 0.5,
         response_format: { type: 'json_object' }
       })
     });
@@ -85,11 +94,6 @@ app.post('/api/analyze', async (req, res) => {
     const aiData: any = await aiResponse.json();
     const resultText = aiData.choices[0].message.content;
     const parsed = JSON.parse(resultText.match(/\{[\s\S]*\}/)![0]);
-
-    // Если ИИ засунул анализ хита в текст, выведем его в первую карточку советов
-    if (parsed.bestVideoAnalysis) {
-        parsed.tips.unshift("🔥 АНАЛИЗ ВАШЕГО ХИТА: " + parsed.bestVideoAnalysis);
-    }
 
     res.json({
       status: 'success',
@@ -100,8 +104,8 @@ app.post('/api/analyze', async (req, res) => {
             totalViews: parseInt(channelStats.viewCount), 
             videoCount: parseInt(channelStats.videoCount) 
         },
-        userVideos: [], 
-        outlierVideos, // Теперь со ссылками
+        userVideos, 
+        outlierVideos,
         aiAnalysis: parsed
       }
     });
