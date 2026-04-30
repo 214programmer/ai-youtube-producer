@@ -14,19 +14,21 @@ app.post('/api/index', async (req, res) => {
 
   try {
     if (task === 'analyze') {
-      // УМНЫЙ ПОИСК: Не обрезаем @, так как поиск по нему точнее
+      // 1. УЛЬТРА-НАДЕЖНЫЙ ПОИСК КАНАЛА
       let query = channelUrl.trim();
-      if (query.includes('youtube.com/')) {
-          const parts = query.split('youtube.com/');
-          query = parts[parts.length - 1].split('/')[0].split('?')[0];
+      if (query.includes('@')) {
+          query = '@' + query.split('@').pop()?.split('/')[0].split('?')[0];
+      } else if (query.includes('youtube.com/')) {
+          query = query.split('/').pop() || query;
       }
       
       const sRes = await fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&q=${encodeURIComponent(query)}&type=channel&maxResults=1&key=${ytKey}`).then(r => r.json());
-      if (!sRes.items?.length) throw new Error('Канал не найден. Проверьте правильность написания @ника');
+      
+      if (!sRes.items?.length) throw new Error('YouTube не видит этот канал. Проверьте @никнейм.');
       const chId = sRes.items[0].id.channelId;
 
-      const refinedNiche = niche.toLowerCase() === 'игры' ? 'геймплей обзор игры gaming 2025' : `${niche} обзор 2025`;
-
+      // 2. Сбор данных (Статистика + Хит + Конкуренты + Последние видео)
+      const refinedNiche = `${niche} обзор 2025 trending`;
       const [stats, lvRes, outliers, top] = await Promise.all([
         fetch(`https://www.googleapis.com/youtube/v3/channels?part=statistics,snippet&id=${chId}&key=${ytKey}`).then(r => r.json()),
         fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&channelId=${chId}&order=date&type=video&maxResults=5&key=${ytKey}`).then(r => r.json()),
@@ -37,16 +39,25 @@ app.post('/api/index', async (req, res) => {
       const title = stats.items[0].snippet.title;
       const hitTitle = top.items?.[0]?.snippet?.title || "Не найдено";
 
+      // Статистика для графика
       const vIds = lvRes.items.map((v:any) => v.id.videoId).join(',');
       const vStats = await fetch(`https://www.googleapis.com/youtube/v3/videos?part=statistics,snippet&id=${vIds}&key=${ytKey}`).then(r => r.json());
       const userVideos = vStats.items.map((v:any) => ({ title: v.snippet.title, views: parseInt(v.statistics.viewCount) })).reverse();
 
+      // Запрос к ИИ (МАКСИМАЛЬНАЯ ПОДРОБНОСТЬ)
       const aiRes = await fetch(GROQ_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
         body: JSON.stringify({
           model: "llama-3.3-70b-versatile",
-          messages: [{ role: "user", content: `Ты — топовый YouTube-продюсер. Канал: "${title}" (Ниша: ${niche}). ХИТ: "${hitTitle}". Дай на РУССКОМ: 1. РАЗБОР ХИТА (триггеры + идея клона). 2. 5 жестких ошибок. 3. 5 советов. JSON: {"bestVideoAnalysis":"", "mistakes":[], "tips":[]}` }],
+          messages: [{ role: "user", content: `Ты элитный стратег. Канал: "${title}" (Ниша: ${niche}). ХИТ: "${hitTitle}". 
+          ДАЙ НА РУССКОМ: 
+          1. РАЗБОР ХИТА (почему взлетел + идея клона). 
+          2. ОШИБКИ: 5 штук. 
+          3. СОВЕТЫ: 10 штук. 
+          4. МОНЕТИЗАЦИЯ: 3 способа.
+          5. СЦЕНАРИЙ SHORTS.
+          ОТВЕТЬ СТРОГО JSON: {"bestVideoAnalysis":"", "mistakes":[], "tips":[], "monetization":[], "scripts":[{"title":"","script":"","visuals":""}]}` }],
           response_format: { type: 'json_object' }
         })
       });
@@ -70,7 +81,7 @@ app.post('/api/index', async (req, res) => {
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
         body: JSON.stringify({
           model: "llama-3.3-70b-versatile",
-          messages: [{ role: "user", content: `Тема: "${text}". Объясни на РУССКОМ подробно, почему это критично для YouTube алгоритмов 2025 и дай пошаговый план из 3 пунктов.` }]
+          messages: [{ role: "user", content: `Тема: "${text}". Объясни на РУССКОМ подробно: почему это важно для алгоритмов 2025 и дай план исправления из 3 шагов.` }]
         })
       });
       const aiData: any = await aiRes.json();
@@ -83,7 +94,7 @@ app.post('/api/index', async (req, res) => {
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
         body: JSON.stringify({
           model: "llama-3.3-70b-versatile",
-          messages: [{ role: "user", content: `Сделай на РУССКОМ: 1. План на 14 дней (День: [Название] | [Краткая суть]). 2. 10 тегов. 3. 3 способа монетизации. JSON: {"contentPlan":[{"day":1,"topic":""}], "seoPack":{"recommendedTags":[]}, "monetization":[]}` }],
+          messages: [{ role: "user", content: `Сделай на РУССКОМ детальный план на 14 дней для канала "${channelTitle}". JSON: {"contentPlan":[{"day":1,"topic":""}]}` }],
           response_format: { type: 'json_object' }
         })
       });
