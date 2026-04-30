@@ -14,30 +14,50 @@ app.post('/api/index', async (req, res) => {
 
   try {
     if (task === 'analyze') {
-      let handle = channelUrl.trim();
-      if (handle.includes('youtube.com/')) {
-          handle = handle.split('/').pop()?.split('?')[0] || handle;
+      // 1. ОЧИСТКА ВВОДА
+      let input = channelUrl.trim();
+      let channelData = null;
+
+      // Извлекаем чистый хендл (например, @MarkBulah)
+      let handle = input;
+      if (input.includes('youtube.com/')) {
+          handle = input.split('/').pop()?.split('?')[0] || input;
       }
       if (!handle.startsWith('@') && !handle.includes('UC')) handle = '@' + handle;
 
-      // 1. НАХОДИМ КАНАЛ
-      const searchRes = await fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&q=${encodeURIComponent(handle)}&type=channel&maxResults=1&key=${ytKey}`).then(r => r.json());
-      if (!searchRes.items?.length) throw new Error('YouTube не нашел канал. Проверьте @никнейм.');
-      const chId = searchRes.items[0].id.channelId;
+      console.log("Ищу канал по хендлу:", handle);
 
-      // 2. СБОР ДАННЫХ
-      const refinedNiche = `${niche} обзор 2025 хайп`;
-      const [stats, lvRes, outliers, top] = await Promise.all([
-        fetch(`https://www.googleapis.com/youtube/v3/channels?part=statistics,snippet&id=${chId}&key=${ytKey}`).then(r => r.json()),
+      // ПОПЫТКА 1: Официальный поиск по Handle (для MarkBulah и др.)
+      const hRes = await fetch(`https://www.googleapis.com/youtube/v3/channels?part=snippet,statistics&forHandle=${encodeURIComponent(handle)}&key=${ytKey}`).then(r => r.json());
+      
+      if (hRes.items?.length) {
+          channelData = hRes.items[0];
+      } else {
+          // ПОПЫТКА 2: Обычный поиск (если хендл не сработал)
+          const sRes = await fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&q=${encodeURIComponent(handle)}&type=channel&maxResults=1&key=${ytKey}`).then(r => r.json());
+          if (sRes.items?.length) {
+              const chId = sRes.items[0].id.channelId;
+              const statsRes = await fetch(`https://www.googleapis.com/youtube/v3/channels?part=snippet,statistics&id=${chId}&key=${ytKey}`).then(r => r.json());
+              channelData = statsRes.items[0];
+          }
+      }
+
+      if (!channelData) throw new Error('YouTube API не смог найти канал. Попробуйте ввести полную ссылку на главную страницу канала.');
+
+      const chId = channelData.id;
+      const title = channelData.snippet.title;
+
+      // 2. СБОР ДАННЫХ (Статистика + Хит + Конкуренты)
+      const refinedNiche = `${niche} обзор 2025`;
+      const [lvRes, outliers, top] = await Promise.all([
         fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&channelId=${chId}&order=date&type=video&maxResults=5&key=${ytKey}`).then(r => r.json()),
         fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&q=${encodeURIComponent(refinedNiche)}&type=video&order=viewCount&maxResults=4&key=${ytKey}`).then(r => r.json()),
         fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&channelId=${chId}&order=viewCount&type=video&maxResults=1&key=${ytKey}`).then(r => r.json())
       ]);
 
-      const title = stats.items?.[0]?.snippet?.title || "Канал";
-      const hitTitle = top.items?.[0]?.snippet?.title || "Хит не найден";
+      const hitTitle = top.items?.[0]?.snippet?.title || "Не найдено";
 
-      // Безопасный сбор видео для графика
+      // Собираем просмотры для графика
       const vIds = lvRes.items?.map((v:any) => v.id.videoId).join(',') || '';
       let userVideos = [];
       if (vIds) {
@@ -46,22 +66,23 @@ app.post('/api/index', async (req, res) => {
       }
 
       // 3. ЗАПРОС К ИИ
-      const aiResponse = await fetch(GROQ_URL, {
+      const aiRes = await fetch(GROQ_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
         body: JSON.stringify({
           model: "llama-3.3-70b-versatile",
-          messages: [{ role: "user", content: `Ты элитный стратег. Канал: "${title}" (Ниша: ${niche}). ХИТ: "${hitTitle}". Дай на РУССКОМ: 1. ПОДРОБНЫЙ разбор хита (почему взлетел + идея-клона). 2. 5 жестких ошибок. 3. 5 советов. JSON: {"bestVideoAnalysis":"", "mistakes":[], "tips":[]}` }],
+          messages: [{ role: "user", content: `Ты YouTube-продюсер. Канал: "${title}" (Ниша: ${niche}). ХИТ: "${hitTitle}". 
+          Дай на РУССКОМ: 1. ПОДРОБНЫЙ разбор хита (почему залетел + идею-клона). 2. 5 жестких ошибок. 3. 5 советов. JSON: {"bestVideoAnalysis":"", "mistakes":[], "tips":[]}` }],
           response_format: { type: 'json_object' }
         })
       });
-      const aiData: any = await aiResponse.json();
+      const aiData: any = await aiRes.json();
       const parsed = JSON.parse(aiData.choices[0].message.content.match(/\{[\s\S]*\}/)![0]);
 
       return res.json({
         status: 'success',
         data: {
-          channelData: { title, subscribers: parseInt(stats.items[0].statistics.subscriberCount), totalViews: parseInt(stats.items[0].statistics.viewCount), videoCount: parseInt(stats.items[0].statistics.videoCount) },
+          channelData: { title, subscribers: parseInt(channelData.statistics.subscriberCount), totalViews: parseInt(channelData.statistics.viewCount), videoCount: parseInt(channelData.statistics.videoCount) },
           userVideos,
           outlierVideos: outliers.items?.map((v:any) => ({ title: v.snippet.title, thumbnail: v.snippet.thumbnails?.high?.url, url: `https://www.youtube.com/watch?v=${v.id.videoId}` })) || [],
           aiAnalysis: parsed
