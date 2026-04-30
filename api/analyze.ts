@@ -18,12 +18,10 @@ app.post('/api/analyze', async (req, res) => {
     const channelId = sRes.items[0].id.channelId;
 
     // 2. Сбор данных: Статистика + Топ-видео (Хит) + Конкуренты
-    const nicheSearch = `${niche} популярное обзор 2025`;
-    
     const [statsData, topVideoData, outliersData] = await Promise.all([
       fetch(`https://www.googleapis.com/youtube/v3/channels?part=statistics,snippet&id=${channelId}&key=${ytKey}`).then(r => r.json()),
       fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&channelId=${channelId}&order=viewCount&type=video&maxResults=1&key=${ytKey}`).then(r => r.json()),
-      fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&q=${encodeURIComponent(nicheSearch)}&type=video&order=viewCount&maxResults=4&key=${ytKey}`).then(r => r.json())
+      fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&q=${encodeURIComponent(niche + " геймплей обзор 2025")}&type=video&order=viewCount&maxResults=4&key=${ytKey}`).then(r => r.json())
     ]);
 
     const stats = statsData.items[0].statistics;
@@ -38,20 +36,20 @@ app.post('/api/analyze', async (req, res) => {
     })) || [];
 
     // 3. ГЛУБОКИЙ ЗАПРОС К ИИ
-    const prompt = `Ты элитный продюсер YouTube. Канал: "${channelTitle}" (Ниша: ${niche}). 
+    const prompt = `Ты элитный YouTube продюсер. Канал: "${channelTitle}" (Ниша: ${niche}). 
     ИХ САМЫЙ БОЛЬШОЙ ХИТ: "${bestVideoTitle}".
     
     ЗАДАЧА НА РУССКОМ:
-    1. РАЗБОР ХИТА: Почему "${bestVideoTitle}" залетело? Проанализируй триггеры. Дай идею для видео-клона, которое наберет еще больше.
-    2. ОШИБКИ: 5 критических проблем.
-    3. СТРАТЕГИЯ: 5 шагов к миллиону.
-    4. МОНЕТИЗАЦИЯ: 3 способа заработать.
-    5. СЦЕНАРИЙ: Напиши 1 готовый сценарий для Shorts.
+    1. РАЗБОР ХИТА: Почему "${bestVideoTitle}" набрало больше всего? Проанализируй триггеры. Дай идею для видео-клона с готовым названием.
+    2. ОШИБКИ И СОВЕТЫ: по 5 подробных пунктов.
+    3. МОНЕТИЗАЦИЯ: 3 способа.
+    4. ПЛАН НА 14 ДНЕЙ: Напиши заголовок и суть на каждый день.
     
     ВЕРНИ ТОЛЬКО JSON: {
-      "bestVideoAnalysis": "разбор + идея клона + почему сработает",
+      "bestVideoAnalysis": "подробный текст разбора",
       "mistakes": [], "tips": [], "monetization": [], 
-      "scripts": [{"title": "Shorts", "script": "текст", "visuals": "кадры"}]
+      "contentPlan": [{"day": 1, "topic": ""}],
+      "scripts": [{"title": "Shorts идея", "script": "текст"}]
     }`;
 
     const aiResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
@@ -65,7 +63,7 @@ app.post('/api/analyze', async (req, res) => {
     });
     
     const aiData: any = await aiResponse.json();
-    const parsed = JSON.parse(aiData.choices[0].message.content);
+    const parsed = JSON.parse(aiData.choices[0].message.content.match(/\{[\s\S]*\}/)![0]);
 
     res.json({
       status: 'success',
