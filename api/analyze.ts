@@ -11,53 +11,68 @@ app.post('/api/analyze', async (req, res) => {
     const apiKey = (customGeminiKey || '').trim(); 
     const ytKey = (process.env.YOUTUBE_API_KEY || '').trim();
 
-    if (!apiKey) return res.status(400).json({ error: 'Введите API ключ' });
-
-    // 1. Поиск канала
+    // 1. Поиск ID канала
     const query = channelUrl.replace(/^https?:\/\/(www\.)?youtube\.com\/(@)?/, '');
     const sRes = await fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&q=${encodeURIComponent(query)}&type=channel&maxResults=1&key=${ytKey}`).then(r => r.json());
     if (!sRes.items?.length) throw new Error('Канал не найден');
     const channelId = sRes.items[0].id.channelId;
 
-    // 2. Сбор статистики и конкурентов
-    const [statsRes, outliersRes] = await Promise.all([
+    // 2. Сбор данных: Статистика + Топ-видео (Хит) + Конкуренты
+    const nicheSearch = `${niche} популярное обзор 2025`;
+    
+    const [statsData, topVideoData, outliersData] = await Promise.all([
       fetch(`https://www.googleapis.com/youtube/v3/channels?part=statistics,snippet&id=${channelId}&key=${ytKey}`).then(r => r.json()),
-      fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&q=${encodeURIComponent(niche + " обзор")}&type=video&order=viewCount&maxResults=4&key=${ytKey}`).then(r => r.json())
+      fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&channelId=${channelId}&order=viewCount&type=video&maxResults=1&key=${ytKey}`).then(r => r.json()),
+      fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&q=${encodeURIComponent(nicheSearch)}&type=video&order=viewCount&maxResults=4&key=${ytKey}`).then(r => r.json())
     ]);
 
-    const stats = statsRes.items[0].statistics;
-    const channelTitle = statsRes.items[0].snippet.title;
+    const stats = statsData.items[0].statistics;
+    const channelTitle = statsData.items[0].snippet.title;
+    const bestVideoTitle = topVideoData.items?.[0]?.snippet?.title || "Не найдено";
 
-    const outlierVideos = outliersRes.items?.map((v: any) => ({
+    const outlierVideos = outliersData.items?.map((v: any) => ({
         title: v.snippet.title,
         thumbnail: v.snippet.thumbnails?.high?.url,
-        url: `https://www.youtube.com/watch?v=${v.id.videoId}`
+        url: `https://www.youtube.com/watch?v=${v.id.videoId}`,
+        channelTitle: v.snippet.channelTitle
     })) || [];
 
-    // 3. Быстрый аудит ИИ
+    // 3. ГЛУБОКИЙ ЗАПРОС К ИИ
+    const prompt = `Ты элитный продюсер YouTube. Канал: "${channelTitle}" (Ниша: ${niche}). 
+    ИХ САМЫЙ БОЛЬШОЙ ХИТ: "${bestVideoTitle}".
+    
+    ЗАДАЧА НА РУССКОМ:
+    1. РАЗБОР ХИТА: Почему "${bestVideoTitle}" залетело? Проанализируй триггеры. Дай идею для видео-клона, которое наберет еще больше.
+    2. ОШИБКИ: 5 критических проблем.
+    3. СТРАТЕГИЯ: 5 шагов к миллиону.
+    4. МОНЕТИЗАЦИЯ: 3 способа заработать.
+    5. СЦЕНАРИЙ: Напиши 1 готовый сценарий для Shorts.
+    
+    ВЕРНИ ТОЛЬКО JSON: {
+      "bestVideoAnalysis": "разбор + идея клона + почему сработает",
+      "mistakes": [], "tips": [], "monetization": [], 
+      "scripts": [{"title": "Shorts", "script": "текст", "visuals": "кадры"}]
+    }`;
+
     const aiResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
       body: JSON.stringify({
         model: "llama-3.3-70b-versatile",
-        messages: [{ role: "user", content: `Дай аудит канала "${channelTitle}" (ниша: ${niche}) на РУССКОМ. 5 ошибок и 5 советов. JSON: {"mistakes":[], "tips":[]}` }],
+        messages: [{ role: "user", content: prompt }],
         response_format: { type: 'json_object' }
       })
     });
     
     const aiData: any = await aiResponse.json();
-    const parsedAi = JSON.parse(aiData.choices[0].message.content);
+    const parsed = JSON.parse(aiData.choices[0].message.content);
 
     res.json({
       status: 'success',
       data: {
         channelData: { title: channelTitle, subscribers: parseInt(stats.subscriberCount), totalViews: parseInt(stats.viewCount), videoCount: parseInt(stats.videoCount) },
         outlierVideos,
-        aiAnalysis: {
-            mistakes: Array.isArray(parsedAi.mistakes) ? parsedAi.mistakes : [],
-            tips: Array.isArray(parsedAi.tips) ? parsedAi.tips : [],
-            contentPlan: [] // Пока пусто для первой кнопки
-        }
+        aiAnalysis: parsed
       }
     });
   } catch (e: any) { res.status(500).json({ error: e.message }); }
