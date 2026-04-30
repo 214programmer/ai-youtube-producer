@@ -16,9 +16,8 @@ app.post('/api/analyze', async (req, res) => {
     if (!searchRes.items?.length) throw new Error('Канал не найден');
     const channelId = searchRes.items[0].id.channelId;
 
-    // Ищем конкурентов: добавляем жесткие фильтры для ниши "Игры"
-    const gamingFilters = niche.toLowerCase() === 'игры' ? 'геймплей обзор игры gaming' : '';
-    const nicheSearch = `${niche} ${gamingFilters} trending 2024`;
+    // Улучшаем поиск конкурентов (только Игры/Ниша)
+    const nicheSearch = `${niche} обзор 2024 trending`;
 
     const [statsRes, lvRes, outliersRes] = await Promise.all([
       fetch(`https://www.googleapis.com/youtube/v3/channels?part=statistics,snippet&id=${channelId}&key=${ytKey}`).then(r => r.json()),
@@ -29,12 +28,12 @@ app.post('/api/analyze', async (req, res) => {
     const channelStats = statsRes.items[0].statistics;
     const channelTitle = statsRes.items[0].snippet.title;
 
-    // РЕАЛЬНЫЕ ПРОСМОТРЫ ДЛЯ ГРАФИКА
+    // График
     const videoIds = lvRes.items.map((v: any) => v.id.videoId).join(',');
     const vStats = await fetch(`https://www.googleapis.com/youtube/v3/videos?part=statistics,snippet&id=${videoIds}&key=${ytKey}`).then(r => r.json());
     const userVideos = vStats.items.map((v: any) => ({ title: v.snippet.title, views: parseInt(v.statistics.viewCount) })).reverse();
 
-    // КОНКУРЕНТЫ СО ССЫЛКАМИ
+    // Референсы
     const outlierVideos = outliersRes.items.map((v: any) => ({
         title: v.snippet.title,
         channelTitle: v.snippet.channelTitle,
@@ -42,13 +41,13 @@ app.post('/api/analyze', async (req, res) => {
         url: `https://www.youtube.com/watch?v=${v.id.videoId}`
     }));
 
-    // БЫСТРЫЙ ИИ АУДИТ
+    // Быстрый аудит
     const aiResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
       body: JSON.stringify({
         model: "llama-3.3-70b-versatile",
-        messages: [{ role: "user", content: `Дай краткий аудит для канала "${channelTitle}" (ниша: ${niche}). 3 ошибки и 3 совета. Ответ СТРОГО в JSON: {"mistakes":[], "tips":[]}` }],
+        messages: [{ role: "user", content: `Дай краткий аудит для канала "${channelTitle}" (ниша: ${niche}) на русском. 3 ошибки и 3 совета. JSON: {"mistakes":[], "tips":[]}` }],
         response_format: { type: 'json_object' }
       })
     });
@@ -60,7 +59,7 @@ app.post('/api/analyze', async (req, res) => {
       data: {
         channelData: { title: channelTitle, subscribers: parseInt(channelStats.subscriberCount), totalViews: parseInt(channelStats.viewCount), videoCount: parseInt(channelStats.videoCount) },
         userVideos, outlierVideos,
-        aiAnalysis: { ...parsedAi, seoPack: {recommendedTags: [], titleTemplates: []}, contentPlan: [], scripts: [], competitors: [], collaborations: [], monetization: [] }
+        aiAnalysis: { ...parsedAi, contentPlan: [], scripts: [], monetization: [], seoPack: {recommendedTags:[], titleTemplates:[]} }
       }
     });
   } catch (e: any) { res.status(500).json({ error: e.message }); }
